@@ -22,6 +22,8 @@
     "check": "pnpm check:web && pnpm check:rust",
     "build:app": "pnpm tauri build --bundles app --no-sign --ci -- --locked",
     "package:macos-local": "bash scripts/package-macos-local.sh",
+    "package:linux-local": "bash scripts/package-linux-local.sh",
+    "test:linux-appimage": "bash scripts/test-linux-appimage.sh",
     "tauri": "tauri"
   },
   "engines": {

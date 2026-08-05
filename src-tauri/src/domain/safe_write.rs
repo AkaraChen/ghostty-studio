@@ -967,6 +967,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::config_document::ConfigDocument;
 
     #[cfg(unix)]
     fn validator(directory: &Path, success: bool) -> std::path::PathBuf {
@@ -1135,6 +1136,39 @@ mod tests {
             .unwrap(),
             original
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_functional_round_trip_validates_applies_and_restores() {
+        let directory = tempfile::tempdir().unwrap();
+        let data_root = directory.path().join("data");
+        let target = directory.path().join("config");
+        let executable = validator(directory.path(), true);
+        let original = b"# keep this comment\nfont-size = 13\n";
+        fs::write(&target, original).unwrap();
+
+        let mut document = ConfigDocument::parse(original).unwrap();
+        document.set_scalar("font-size", "14").unwrap();
+        let staged = document.render();
+        assert!(
+            validate_candidate(&executable, &target, &staged)
+                .unwrap()
+                .valid
+        );
+
+        let applied = write_atomically(&target, &staged, &revision(original), &data_root).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), staged);
+        let restored = read_snapshot(&data_root, &target, &applied.snapshot_id).unwrap();
+        assert_eq!(restored, original);
+        assert!(
+            validate_candidate(&executable, &target, &restored)
+                .unwrap()
+                .valid
+        );
+
+        write_atomically(&target, &restored, &applied.revision, &data_root).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), original);
     }
 
     #[test]

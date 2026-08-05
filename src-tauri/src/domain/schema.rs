@@ -76,7 +76,7 @@ fn parse_document(document: &str, contract_matches: bool) -> Vec<RuntimeOption> 
             ),
             None => ("text", Vec::new()),
         };
-        let platform = platform_for(&description);
+        let platform = platform_for(key, &description);
         let repeatable = known_repeatable(key);
         let risk = risk_for(key);
         options.insert(
@@ -100,7 +100,10 @@ fn parse_document(document: &str, contract_matches: bool) -> Vec<RuntimeOption> 
         );
     }
 
-    options.into_values().collect()
+    options
+        .into_values()
+        .filter(|option| platform_supported(option.platform.as_deref(), std::env::consts::OS))
+        .collect()
 }
 
 fn category_for(key: &str) -> &'static str {
@@ -198,14 +201,30 @@ fn audited_contract(key: &str) -> Option<(&'static str, &'static [&'static str])
     }
 }
 
-fn platform_for(description: &str) -> Option<String> {
+fn platform_for(key: &str, description: &str) -> Option<String> {
     let lower = description.to_ascii_lowercase();
-    if lower.contains("only supported on macos") || lower.contains("macos only") {
+    if key.starts_with("macos-")
+        || lower.contains("only supported on macos")
+        || lower.contains("macos only")
+    {
         Some("macOS".to_string())
-    } else if lower.contains("only supported on linux") || lower.contains("gtk only") {
+    } else if key.starts_with("linux-")
+        || key.starts_with("gtk-")
+        || key.starts_with("x11-")
+        || lower.contains("only supported on linux")
+        || lower.contains("gtk only")
+    {
         Some("Linux".to_string())
     } else {
         None
+    }
+}
+
+fn platform_supported(platform: Option<&str>, target_os: &str) -> bool {
+    match platform {
+        Some("macOS") => target_os == "macos",
+        Some("Linux") => target_os == "linux",
+        _ => true,
     }
 }
 
@@ -268,6 +287,25 @@ mod tests {
     fn schema_mismatch_disables_even_known_contract_keys() {
         let options = parse_document("font-size = 13\nbackground = 000000\n", false);
         assert!(options.iter().all(|option| !option.editable));
+    }
+
+    #[test]
+    fn platform_prefixes_are_classified_even_without_documentation_markers() {
+        assert_eq!(
+            platform_for("macos-titlebar-style", "Titlebar style"),
+            Some("macOS".into())
+        );
+        assert_eq!(
+            platform_for("gtk-tabs-location", "Tab location"),
+            Some("Linux".into())
+        );
+    }
+
+    #[test]
+    fn platform_filter_hides_macos_only_options_on_linux() {
+        assert!(!platform_supported(Some("macOS"), "linux"));
+        assert!(platform_supported(Some("Linux"), "linux"));
+        assert!(platform_supported(None, "linux"));
     }
 
     #[test]
