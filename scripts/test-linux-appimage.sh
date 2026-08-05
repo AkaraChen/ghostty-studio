@@ -9,6 +9,7 @@ fi
 [[ -f "$appimage" ]] || { echo "AppImage not found" >&2; exit 1; }
 
 docker build -t ghostty-studio-appimage-smoke "$project_root/tests/linux"
-docker run --rm --read-only --tmpfs /tmp:exec --tmpfs /home/smoke \
+docker run --rm --read-only --tmpfs /tmp:exec \
+  --tmpfs /home/smoke:uid=10001,gid=10001,mode=700 \
   -v "$(cd -- "$(dirname -- "$appimage")" && pwd):/artifacts:ro" \
   ghostty-studio-appimage-smoke "/artifacts/$(basename -- "$appimage")"
