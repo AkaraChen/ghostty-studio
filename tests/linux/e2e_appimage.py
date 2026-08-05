@@ -62,32 +62,26 @@ def accept_native_dialog(title, accepted):
             check=False,
         )
         for window_id in result.stdout.split():
-            geometry = subprocess.run(
-                ["xdotool", "getwindowgeometry", "--shell", window_id],
+            stage(f"accepting native dialog title={title!r} window={window_id}")
+            focus = subprocess.run(
+                ["xdotool", "windowfocus", "--sync", window_id],
                 capture_output=True,
                 text=True,
                 check=False,
-            ).stdout
-            values = dict(
-                line.split("=", 1) for line in geometry.splitlines() if "=" in line
             )
-            width = int(values.get("WIDTH", "400"))
-            height = int(values.get("HEIGHT", "180"))
-            subprocess.run(
-                [
-                    "xdotool",
-                    "mousemove",
-                    "--window",
-                    window_id,
-                    str(max(10, width - 70)),
-                    str(max(10, height - 30)),
-                    "click",
-                    "1",
-                ],
+            key = subprocess.run(
+                ["xdotool", "key", "--window", window_id, "Return"],
+                capture_output=True,
+                text=True,
                 check=False,
             )
-            accepted.set()
-            return
+            if focus.returncode == 0 and key.returncode == 0:
+                accepted.set()
+                return
+            stage(
+                f"native dialog input failed: focus={focus.returncode} "
+                f"key={key.returncode} stderr={(focus.stderr + key.stderr).strip()}"
+            )
         time.sleep(0.2)
 
 
@@ -214,7 +208,12 @@ def main():
         if not click_text("button", "保存到 Ghostty"):
             raise RuntimeError("save button is unavailable")
         wait_until("native write confirmation", accepted.is_set, timeout=30)
-        wait_until("applied config", lambda: config_path.read_bytes() == changed, timeout=60)
+        wait_until(
+            "applied config",
+            lambda: config_path.read_bytes() == changed,
+            timeout=60,
+            diagnostic=lambda: repr(config_path.read_bytes()),
+        )
         if b"macos-titlebar-style = native" not in config_path.read_bytes():
             raise RuntimeError("platform-filtered setting changed during apply")
 
