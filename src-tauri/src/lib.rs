@@ -1,3 +1,4 @@
+mod appimage_runtime;
 mod domain;
 mod error;
 mod models;
@@ -1746,6 +1747,10 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ghostty Studio");
+}
+
+pub fn prepare_appimage_runtime() {
+    appimage_runtime::prepare();
 }
 
 fn allowed_navigation(url: &tauri::Url) -> bool {

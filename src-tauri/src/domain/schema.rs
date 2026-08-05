@@ -8,34 +8,69 @@ use crate::{
     models::{RuntimeOption, RuntimeSchema},
 };
 
-const AUDITED_GHOSTTY_VERSION: &str = "1.3.1";
-const AUDITED_SCHEMA_HASHES: &[&str] = &[
+struct AuditedSchemaContract {
+    version: &'static str,
+    hashes: &'static [&'static str],
+}
+
+const GHOSTTY_1_3_1_SCHEMA_HASHES: &[&str] = &[
     "5e36480fe2ec3d510ffc32de84c617fbaca10e1330c097185301b51ab9c10e6c",
     // pkgforge-dev Ghostty 1.3.1 x86_64 AppImage used by the Linux release gate.
     "acc95fe8726531505334a222b82c0eaef59acd4986fb4ccd8bb054eedbb83a9d",
+    // Canonical Ghostty 1.3.1 snap schema observed by the Linux desktop gate.
+    "ec1566d051ae06a0884cac299e94f32638fb41eaf20fcaeba3cdc29bdfbae01b",
 ];
+
+const AUDITED_SCHEMA_CONTRACTS: &[AuditedSchemaContract] = &[AuditedSchemaContract {
+    version: "1.3.1",
+    hashes: GHOSTTY_1_3_1_SCHEMA_HASHES,
+}];
 
 pub fn load(executable: &Path, version: Option<String>) -> Result<RuntimeSchema, CommandError> {
     let document = ghostty::show_default_config_with_docs(executable)?;
     let schema_hash = hex(&Sha256::digest(document.as_bytes()));
-    let contract_matches = version.as_deref() == Some(AUDITED_GHOSTTY_VERSION)
-        && AUDITED_SCHEMA_HASHES.contains(&schema_hash.as_str());
+    let contract_matches = schema_contract_is_audited(version.as_deref(), &schema_hash);
     let parsed_options = parse_document(&document, contract_matches);
     let (options, filtered_options) = options_for_target(parsed_options, std::env::consts::OS);
-    let diagnostics = if contract_matches {
-        Vec::new()
-    } else {
-        vec![format!(
-            "当前 Ghostty 版本尚未适配，设置暂时只读（检测到 {}）。",
-            version.as_deref().unwrap_or("未知版本")
-        )]
-    };
+    let diagnostics = compatibility_diagnostic(version.as_deref(), &schema_hash, contract_matches)
+        .into_iter()
+        .collect();
     Ok(RuntimeSchema {
         ghostty_version: version,
         schema_hash,
         options,
         filtered_options,
         diagnostics,
+    })
+}
+
+fn schema_contract_is_audited(version: Option<&str>, schema_hash: &str) -> bool {
+    AUDITED_SCHEMA_CONTRACTS
+        .iter()
+        .any(|contract| version == Some(contract.version) && contract.hashes.contains(&schema_hash))
+}
+
+fn compatibility_diagnostic(
+    version: Option<&str>,
+    schema_hash: &str,
+    contract_matches: bool,
+) -> Option<String> {
+    if contract_matches {
+        return None;
+    }
+
+    Some(match version {
+        Some(version)
+            if AUDITED_SCHEMA_CONTRACTS
+                .iter()
+                .any(|contract| contract.version == version) =>
+        {
+            format!("Ghostty {version} 的 schema 指纹 {schema_hash} 尚未审核，设置暂时只读。")
+        }
+        Some(version) => {
+            format!("Ghostty {version} 尚未完成 schema 审核，设置暂时只读。")
+        }
+        None => "无法识别 Ghostty 版本，schema 尚未审核，设置暂时只读。".to_string(),
     })
 }
 
@@ -301,6 +336,42 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_1_3_1_accepts_only_its_audited_schema_variants() {
+        for hash in GHOSTTY_1_3_1_SCHEMA_HASHES {
+            assert!(schema_contract_is_audited(Some("1.3.1"), hash));
+        }
+        assert!(!schema_contract_is_audited(Some("1.3.1"), "unreviewed"));
+        assert!(!schema_contract_is_audited(
+            Some("1.3.2"),
+            GHOSTTY_1_3_1_SCHEMA_HASHES[0]
+        ));
+        assert!(!schema_contract_is_audited(
+            None,
+            GHOSTTY_1_3_1_SCHEMA_HASHES[0]
+        ));
+    }
+
+    #[test]
+    fn schema_diagnostics_distinguish_unknown_versions_and_hashes() {
+        assert_eq!(
+            compatibility_diagnostic(Some("1.4.0"), "future", false).as_deref(),
+            Some("Ghostty 1.4.0 尚未完成 schema 审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(Some("1.3.1"), "unexpected", false).as_deref(),
+            Some("Ghostty 1.3.1 的 schema 指纹 unexpected 尚未审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(None, "unknown", false).as_deref(),
+            Some("无法识别 Ghostty 版本，schema 尚未审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(Some("1.3.1"), GHOSTTY_1_3_1_SCHEMA_HASHES[0], true),
+            None
+        );
+    }
+
+    #[test]
     fn platform_prefixes_are_classified_even_without_documentation_markers() {
         assert_eq!(
             platform_for("macos-titlebar-style", "Titlebar style"),
@@ -386,8 +457,11 @@ mod tests {
             .map(|option| &option.key)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), schema.options.len());
-        if probe.version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) {
-            assert!(AUDITED_SCHEMA_HASHES.contains(&schema.schema_hash.as_str()));
+        if probe.version.as_deref() == Some("1.3.1") {
+            assert!(schema_contract_is_audited(
+                probe.version.as_deref(),
+                &schema.schema_hash
+            ));
             assert!(schema
                 .options
                 .iter()

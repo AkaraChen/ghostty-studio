@@ -34,6 +34,13 @@ timeout --signal=TERM --kill-after=5s 75s dbus-run-session -- xvfb-run -a sh -c 
     kill "$app_pid" 2>/dev/null || true
     wait "$app_pid" 2>/dev/null || true
   }
+  assert_no_gvfs_conflict() {
+    if grep -Eqi "libgvfscommon\\.so.*undefined symbol|failed to load module.*gvfs" "$2/app.log"; then
+      echo "AppImage loaded an ABI-incompatible host GVFS module" >&2
+      cat "$2/app.log" >&2
+      exit 1
+    fi
+  }
   trap cleanup EXIT
   color_count=0
   deviation=0
@@ -54,6 +61,7 @@ EOF
       awk -v colors="$color_count" -v deviation="$deviation" \
         "BEGIN { exit !(colors >= 100 && deviation >= 0.05) }" && {
           printf "T2 rendered content: colors=%s deviation=%s\n" "$color_count" "$deviation"
+          assert_no_gvfs_conflict
           exit 0
         }
       printf "[T2] render not ready: colors=%s deviation=%s\n" "$color_count" "$deviation"

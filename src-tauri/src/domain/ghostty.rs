@@ -223,6 +223,7 @@ fn sanitize_appimage_environment(
         "LD_LIBRARY_PATH",
         "XDG_DATA_DIRS",
         "GIO_MODULE_DIR",
+        "GIO_EXTRA_MODULES",
         "GTK_PATH",
         "GTK_EXE_PREFIX",
         "GTK_DATA_PREFIX",
@@ -310,7 +311,7 @@ mod tests {
         let executable = directory.path().join("ghostty");
         std::fs::write(
             &executable,
-            "#!/bin/sh\nprintf '%s|%s|%s' \"${LD_LIBRARY_PATH-unset}\" \"${XDG_DATA_DIRS-unset}\" \"${APPDIR-unset}\"\n",
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s' \"${LD_LIBRARY_PATH-unset}\" \"${XDG_DATA_DIRS-unset}\" \"${GIO_MODULE_DIR-unset}\" \"${GIO_EXTRA_MODULES-unset}\" \"${APPDIR-unset}\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -320,11 +321,16 @@ mod tests {
             ("LD_LIBRARY_PATH", OsString::from("/tmp/.mount/app/usr/lib")),
             ("LD_LIBRARY_PATH_ORIG", OsString::from("/host/lib")),
             ("XDG_DATA_DIRS", OsString::from("/tmp/.mount/app/usr/share")),
+            (
+                "GIO_MODULE_DIR",
+                OsString::from("/tmp/.mount/app/usr/lib/gio/modules"),
+            ),
+            ("GIO_EXTRA_MODULES", OsString::from("/usr/lib/gio/modules")),
         ]);
 
         let output =
             run_with_environment(&executable, &[], |key| environment.get(key).cloned()).unwrap();
         assert!(output.success);
-        assert_eq!(output.stdout, "/host/lib|unset|unset");
+        assert_eq!(output.stdout, "/host/lib|unset|unset|unset|unset");
     }
 }
