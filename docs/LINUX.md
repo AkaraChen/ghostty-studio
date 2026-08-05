@@ -31,8 +31,8 @@ pnpm test:linux-appimage
 
 The packaging command builds only the AppImage, checks its architecture and bundled libraries,
 rejects build-home path leakage, and prints a SHA-256 digest. The smoke test extracts the artifact
-inside a minimal Ubuntu 22.04 container without WebKitGTK development packages, supplies a temporary
-Ghostty/config environment, and requires the application window to appear under Xvfb.
+inside an Ubuntu 22.04 container with the baseline GTK runtime but no WebKitGTK packages, supplies a
+temporary Ghostty/config environment, and requires the application window to appear under Xvfb.
 
 CI additionally runs a functional backend round trip that stages a scalar edit, validates it with a
 Ghostty-compatible executable, atomically applies it, reads the recovery snapshot, validates the
