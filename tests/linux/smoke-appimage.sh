@@ -35,10 +35,12 @@ timeout --signal=TERM --kill-after=5s 75s dbus-run-session -- xvfb-run -a sh -c 
     wait "$app_pid" 2>/dev/null || true
   }
   trap cleanup EXIT
-  for _ in $(seq 1 30); do
+  color_count=0
+  deviation=0
+  for attempt in $(seq 1 45); do
     window_id=$(xdotool search --name "Ghostty Studio" 2>/dev/null | sed -n "1p" || true)
     if [ -n "$window_id" ]; then
-      printf "[T2] window=%s; capturing pixels\n" "$window_id"
+      printf "[T2] attempt=%s window=%s; capturing pixels\n" "$attempt" "$window_id"
       timeout --signal=TERM --kill-after=2s 15s \
         import -window "$window_id" "$2/render.png" || {
           status=$?
@@ -50,17 +52,16 @@ timeout --signal=TERM --kill-after=5s 75s dbus-run-session -- xvfb-run -a sh -c 
 $(convert "$2/render.png" -format "%k %[fx:standard_deviation]" info:)
 EOF
       awk -v colors="$color_count" -v deviation="$deviation" \
-        "BEGIN { exit !(colors >= 100 && deviation >= 0.05) }" || {
-          echo "window exists but rendered content lacks visual variance: colors=$color_count deviation=$deviation" >&2
-          exit 1
+        "BEGIN { exit !(colors >= 100 && deviation >= 0.05) }" && {
+          printf "T2 rendered content: colors=%s deviation=%s\n" "$color_count" "$deviation"
+          exit 0
         }
-      printf "T2 rendered content: colors=%s deviation=%s\n" "$color_count" "$deviation"
-      exit 0
+      printf "[T2] render not ready: colors=%s deviation=%s\n" "$color_count" "$deviation"
     fi
     kill -0 "$app_pid" 2>/dev/null || { cat "$2/app.log" >&2; exit 1; }
     sleep 1
   done
   cat "$2/app.log" >&2
-  echo "timed out waiting for the Ghostty Studio window" >&2
+  echo "timed out waiting for rendered content: colors=$color_count deviation=$deviation" >&2
   exit 1
 ' sh "$work" "$work"
