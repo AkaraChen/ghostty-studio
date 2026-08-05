@@ -171,7 +171,8 @@ class BrowserDemoBackend implements Backend {
       revision: "demo-revision",
       readOnly: true,
       values: Object.fromEntries(
-        demoSchema.options.map((option) => [option.key, option.currentValues]),
+        [...demoSchema.options, ...demoSchema.filteredOptions]
+          .map((option) => [option.key, option.currentValues]),
       ),
       diagnostics: ["浏览器预览模式固定为只读。请运行 Tauri 应用以访问本地文件。"],
     };

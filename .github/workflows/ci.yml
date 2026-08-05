@@ -31,7 +31,7 @@ jobs:
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y binutils libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Install the pinned Rust toolchain
         run: |
           rustup show
@@ -55,15 +55,15 @@ jobs:
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y binutils libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Install the pinned Rust toolchain
         run: rustup show
       - run: pnpm install --frozen-lockfile
-      - name: T3 functional config round trip
+      - name: Cross-platform round-trip regression
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked linux_functional_round_trip
       - name: T1 build and inspect AppImage
         run: pnpm package:linux-local
-      - name: T2 clean-container window smoke test
+      - name: T2 rendered smoke + T3 real Ghostty AppImage loop
         run: pnpm test:linux-appimage
       - uses: actions/upload-artifact@v6
         with:

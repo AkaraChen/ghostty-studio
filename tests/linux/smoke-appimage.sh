@@ -20,7 +20,8 @@ esac
 EOF
 chmod 0755 "$HOME/.local/bin/ghostty"
 export PATH="$HOME/.local/bin:/usr/bin:/bin"
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+"/usr/local/bin/verify-appimage-dependencies" "$work/squashfs-root"
 
 # The single-quoted body is intentionally evaluated by the isolated inner shell.
 # shellcheck disable=SC2016
@@ -29,7 +30,17 @@ dbus-run-session -- xvfb-run -a sh -c '
   app_pid=$!
   trap "kill $app_pid 2>/dev/null || true" EXIT
   for _ in $(seq 1 30); do
-    if xdotool search --name "Ghostty Studio" >/dev/null 2>&1; then
+    if window_id=$(xdotool search --name "Ghostty Studio" 2>/dev/null | head -n 1); then
+      import -window "$window_id" "$2/render.png"
+      read -r color_count deviation <<EOF
+$(convert "$2/render.png" -format "%k %[fx:standard_deviation]" info:)
+EOF
+      awk -v colors="$color_count" -v deviation="$deviation" \
+        "BEGIN { exit !(colors >= 100 && deviation >= 0.05) }" || {
+          echo "window exists but rendered content lacks visual variance: colors=$color_count deviation=$deviation" >&2
+          exit 1
+        }
+      printf "T2 rendered content: colors=%s deviation=%s\n" "$color_count" "$deviation"
       exit 0
     fi
     kill -0 "$app_pid" 2>/dev/null || { cat "$2/app.log" >&2; exit 1; }

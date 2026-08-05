@@ -39,6 +39,12 @@ import {
 } from "./productModel";
 import type { CompatibilityChange } from "./productModel";
 import { changeSetsEqual, ReviewGuard } from "./reviewGuard";
+import { modifierLabelForPlatform } from "./platform";
+import {
+  configuredFilteredOptions,
+  initialValues,
+  valuesForSession,
+} from "./sessionValues";
 import { copyForSetting } from "./settingCopy";
 import {
   chooseStartupCandidate,
@@ -76,28 +82,6 @@ function writePreference(key: string, value: string) {
   } catch {
     // Preferences improve continuity but never block configuration work.
   }
-}
-
-function initialValues(options: RuntimeOption[]): Record<string, string> {
-  return Object.fromEntries(
-    options.map((option) => [
-      option.key,
-      option.defaultValues[0] ?? "",
-    ]),
-  );
-}
-
-function valuesForSession(
-  options: RuntimeOption[],
-  session: ConfigSession,
-): Record<string, string> {
-  const values = initialValues(options);
-  for (const [key, configuredValues] of Object.entries(session.values)) {
-    if (configuredValues.length > 0 && key in values) {
-      values[key] = configuredValues[configuredValues.length - 1];
-    }
-  }
-  return values;
 }
 
 function errorMessage(error: unknown): string {
@@ -315,7 +299,7 @@ export default function App() {
             const opened = await backend.openConfig(candidate.id);
             if (!cancelled) {
               setSession(opened);
-              Object.assign(values, valuesForSession(resources.schema.options, opened));
+              Object.assign(values, valuesForSession(resources.schema, opened));
             }
           } catch (openError) {
             if (!cancelled) setError(errorMessage(openError));
@@ -356,6 +340,11 @@ export default function App() {
     });
   }, [schema]);
 
+  const platformRestrictedKeys = useMemo(() => new Set(
+    schema ? configuredFilteredOptions(schema, session).map((option) => option.key) : [],
+  ), [schema, session]);
+  const modifierLabel = modifierLabelForPlatform(environment?.platform);
+
   useEffect(() => {
     if (!schema) return;
     const validCategories = new Set([
@@ -373,7 +362,14 @@ export default function App() {
 
   const visibleOptions = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    const options = (schema?.options ?? []).filter((option) => {
+    const supportedOptions = schema?.options ?? [];
+    const filteredConfigured = schema
+      ? configuredFilteredOptions(schema, session)
+      : [];
+    const catalog = needle || category === "我的配置" || category === "设置参考"
+      ? [...supportedOptions, ...filteredConfigured]
+      : supportedOptions;
+    const options = catalog.filter((option) => {
       const copy = copyForSetting(option.key, option.description);
       const searchable = `${option.key} ${copy.label} ${copy.summary ?? ""} ${option.description} ${option.category}`.toLocaleLowerCase();
       if (needle) return searchable.includes(needle);
@@ -603,7 +599,7 @@ export default function App() {
       if (candidate && resources.schema) {
         try {
           opened = await backend.openConfig(candidate.id);
-          Object.assign(nextValues, valuesForSession(resources.schema.options, opened));
+          Object.assign(nextValues, valuesForSession(resources.schema, opened));
         } catch (openError) {
           setActiveCandidate(candidate);
           setSession(null);
@@ -655,7 +651,7 @@ export default function App() {
     setSourceError(null);
     try {
       const opened = await backend.openConfig(candidate.id);
-      const nextValues = valuesForSession(schema.options, opened);
+      const nextValues = valuesForSession(schema, opened);
       setActiveCandidate(candidate);
       writePreference(PREFERRED_CANDIDATE_KEY, candidate.id);
       setSession(opened);
@@ -712,7 +708,7 @@ export default function App() {
       }
       setSession(opened);
       writePreference(PREFERRED_CANDIDATE_KEY, opened.candidateId);
-      const nextValues = valuesForSession(schema.options, opened);
+      const nextValues = valuesForSession(schema, opened);
       setBaseline(nextValues);
       setDraft({ ...nextValues });
       setChangePreview(null);
@@ -843,7 +839,7 @@ export default function App() {
         }
       }
       setSession(nextSession);
-      const nextValues = schema ? valuesForSession(schema.options, nextSession) : { ...draft };
+      const nextValues = schema ? valuesForSession(schema, nextSession) : { ...draft };
       setBaseline(nextValues);
       setDraft({ ...nextValues });
       setNotice(
@@ -868,7 +864,7 @@ export default function App() {
       ) {
         try {
           const opened = await backend.openConfig(activeCandidate.id);
-          const nextValues = valuesForSession(schema.options, opened);
+          const nextValues = valuesForSession(schema, opened);
           const rebasedDraft = { ...nextValues };
           for (const change of reviewedChanges) {
             const option = schema.options.find((item) => item.key === change.key);
@@ -973,7 +969,7 @@ export default function App() {
 
       try {
         const opened = await backend.openConfig(activeCandidate.id);
-        const nextValues = valuesForSession(schema.options, opened);
+        const nextValues = valuesForSession(schema, opened);
         setSession(opened);
         setBaseline(nextValues);
         setDraft({ ...nextValues });
@@ -993,7 +989,7 @@ export default function App() {
       if (activeCandidate && schema) {
         try {
           const opened = await backend.openConfig(activeCandidate.id);
-          const nextValues = valuesForSession(schema.options, opened);
+          const nextValues = valuesForSession(schema, opened);
           setSession(opened);
           setBaseline(nextValues);
           setDraft({ ...nextValues });
@@ -1084,7 +1080,7 @@ export default function App() {
             >
               <X size={13} />
             </button>
-          ) : <kbd>⌘K</kbd>}
+          ) : <kbd>{modifierLabel}K</kbd>}
         </div>
 
         <nav className="main-nav" aria-label="我的配置">
@@ -1248,6 +1244,8 @@ export default function App() {
                               configuredInEditingLayer={configuredInEditingLayer}
                               effectiveValueKnown={configGraph?.semanticsKnown ?? false}
                               sourceLabel={activeCandidate?.label ?? "当前配置"}
+                              platformRestricted={platformRestrictedKeys.has(option.key)}
+                              currentPlatform={environment?.platform}
                               onValueChange={updateDraftValue}
                               onReset={resetDraftValue}
                             />
@@ -1315,7 +1313,7 @@ export default function App() {
                 disabled={reviewLoading || applying}
               >
                 {reviewLoading ? "正在检查…" : "检查并保存"}
-                <kbd>⌘S</kbd>
+                <kbd>{modifierLabel}S</kbd>
               </button>
             </div>
           </section>

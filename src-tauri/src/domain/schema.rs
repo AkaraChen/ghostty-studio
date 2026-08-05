@@ -17,7 +17,8 @@ pub fn load(executable: &Path, version: Option<String>) -> Result<RuntimeSchema,
     let schema_hash = hex(&Sha256::digest(document.as_bytes()));
     let contract_matches =
         version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) && schema_hash == AUDITED_SCHEMA_HASH;
-    let options = parse_document(&document, contract_matches);
+    let parsed_options = parse_document(&document, contract_matches);
+    let (options, filtered_options) = options_for_target(parsed_options, std::env::consts::OS);
     let diagnostics = if contract_matches {
         Vec::new()
     } else {
@@ -30,6 +31,7 @@ pub fn load(executable: &Path, version: Option<String>) -> Result<RuntimeSchema,
         ghostty_version: version,
         schema_hash,
         options,
+        filtered_options,
         diagnostics,
     })
 }
@@ -100,10 +102,16 @@ fn parse_document(document: &str, contract_matches: bool) -> Vec<RuntimeOption> 
         );
     }
 
+    options.into_values().collect()
+}
+
+fn options_for_target(
+    options: Vec<RuntimeOption>,
+    target_os: &str,
+) -> (Vec<RuntimeOption>, Vec<RuntimeOption>) {
     options
-        .into_values()
-        .filter(|option| platform_supported(option.platform.as_deref(), std::env::consts::OS))
-        .collect()
+        .into_iter()
+        .partition(|option| platform_supported(option.platform.as_deref(), target_os))
 }
 
 fn category_for(key: &str) -> &'static str {
@@ -302,10 +310,59 @@ mod tests {
     }
 
     #[test]
-    fn platform_filter_hides_macos_only_options_on_linux() {
+    fn platform_filter_is_bidirectional() {
         assert!(!platform_supported(Some("macOS"), "linux"));
         assert!(platform_supported(Some("Linux"), "linux"));
         assert!(platform_supported(None, "linux"));
+        assert!(platform_supported(Some("macOS"), "macos"));
+        assert!(!platform_supported(Some("Linux"), "macos"));
+        assert!(platform_supported(None, "macos"));
+    }
+
+    #[test]
+    fn linux_keeps_macos_options_as_filtered_metadata() {
+        let parsed = parse_document(
+            "macos-titlebar-style = native\ngtk-titlebar = true\nfont-size = 13\n",
+            true,
+        );
+        let (supported, filtered) = options_for_target(parsed, "linux");
+        assert_eq!(
+            supported
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["font-size", "gtk-titlebar"]
+        );
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["macos-titlebar-style"]
+        );
+    }
+
+    #[test]
+    fn macos_keeps_linux_options_as_filtered_metadata() {
+        let parsed = parse_document(
+            "macos-titlebar-style = native\ngtk-titlebar = true\nfont-size = 13\n",
+            true,
+        );
+        let (supported, filtered) = options_for_target(parsed, "macos");
+        assert_eq!(
+            supported
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["font-size", "macos-titlebar-style"]
+        );
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["gtk-titlebar"]
+        );
     }
 
     #[test]

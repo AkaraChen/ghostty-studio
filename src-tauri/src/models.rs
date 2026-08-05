@@ -58,6 +58,7 @@ pub struct RuntimeSchema {
     pub ghostty_version: Option<String>,
     pub schema_hash: String,
     pub options: Vec<RuntimeOption>,
+    pub filtered_options: Vec<RuntimeOption>,
     pub diagnostics: Vec<String>,
 }
 

@@ -10,7 +10,7 @@ Install Node 22.11, pnpm 10, the pinned Rust toolchain, and Tauri's Linux depend
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+sudo apt-get install -y binutils libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 pnpm install --frozen-lockfile
 pnpm check
 pnpm tauri dev
@@ -29,17 +29,23 @@ pnpm package:linux-local
 pnpm test:linux-appimage
 ```
 
-The packaging command builds only the AppImage, checks its architecture and bundled libraries,
-rejects build-home path leakage, and prints a SHA-256 digest. The smoke test extracts the artifact
-inside an Ubuntu 22.04 container with the baseline GTK runtime but no WebKitGTK packages, supplies a
-temporary Ghostty/config environment, and requires the application window to appear under Xvfb.
+The packaging command builds only the AppImage, checks its architecture and ELF dependency table,
+rejects build-home path leakage, and prints a SHA-256 digest. T2 extracts the artifact inside an
+Ubuntu 22.04 container with the baseline GTK runtime but no WebKitGTK packages. It resolves the
+runtime dependency closure from the extracted AppDir, starts the application without renderer
+workarounds, captures the WebView window, and rejects blank or near-uniform rendering.
 
-CI additionally runs a functional backend round trip that stages a scalar edit, validates it with a
-Ghostty-compatible executable, atomically applies it, reads the recovery snapshot, validates the
-snapshot, and restores it.
+T3 runs the AppImage in a separate Ubuntu 22.04 WebDriver container with the real Ghostty 1.3.1
+community AppImage pinned by SHA-256 and an isolated HOME. It drives the renderer through
+`tauri-driver`, verifies a configured foreign-platform key is visible but read-only, changes a
+scalar setting, validates and applies it through real Ghostty, then restores the generated snapshot.
+The test requires the original configuration bytes—including the filtered platform key—to be
+restored exactly.
 
 ## Release limits
 
 The automated checks do not replace the distribution and desktop matrix. Before a public release,
-manually cover Ubuntu 24.04, Debian 12, Fedora, and Arch (T4), plus Wayland, X11, HiDPI, and native
-confirmation dialogs (T5). Network filesystems remain outside the supported write-safety matrix.
+manually cover Ubuntu 24.04, Debian 12, Fedora, and Arch (T4). T5 requires a real Linux desktop and
+must pass on both Wayland and X11, including HiDPI and native confirmation dialogs, before any public
+Linux release. CI/Xvfb evidence does not waive this release gate. Network filesystems remain outside
+the supported write-safety matrix.

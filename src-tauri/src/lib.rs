@@ -140,6 +140,7 @@ fn load_runtime_schema(state: State<'_, AppState>) -> Result<RuntimeSchema, Comm
                 ghostty_version: None,
                 schema_hash: "offline".to_string(),
                 options: Vec::new(),
+                filtered_options: Vec::new(),
                 diagnostics: vec!["没有找到 Ghostty，设置暂时只读。".to_string()],
             }
         };
@@ -1867,6 +1868,7 @@ mod tests {
             schema_hash: "old-schema".to_string(),
             diagnostics: Vec::new(),
             options: Vec::new(),
+            filtered_options: Vec::new(),
         });
         insert_stage(&state, "session", &"0".repeat(64));
 
@@ -1877,6 +1879,7 @@ mod tests {
                 schema_hash: "new-schema".to_string(),
                 diagnostics: Vec::new(),
                 options: Vec::new(),
+                filtered_options: Vec::new(),
             },
         )
         .unwrap_err();
@@ -1946,6 +1949,7 @@ mod tests {
                     editable: false,
                 },
             ],
+            filtered_options: Vec::new(),
         });
 
         let allowed = editable_scalar_keys(&state).unwrap();
@@ -1975,6 +1979,7 @@ mod tests {
                 risk: "normal".to_string(),
                 editable: true,
             }],
+            filtered_options: Vec::new(),
         });
         let prepared = |changed_keys: Vec<String>| PreparedSnapshotRestore {
             current_bytes: b"font-size = 14\n".to_vec(),

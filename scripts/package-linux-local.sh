@@ -9,7 +9,7 @@ if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   exit 1
 fi
 
-for required_tool in pnpm node cargo file ldd sha256sum grep find awk; do
+for required_tool in pnpm node cargo file readelf sha256sum grep find awk; do
   if ! command -v "$required_tool" >/dev/null 2>&1; then
     echo "missing required tool: $required_tool" >&2
     exit 1

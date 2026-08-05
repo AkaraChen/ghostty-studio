@@ -55,6 +55,7 @@ export interface RuntimeSchema {
   ghosttyVersion: string | null;
   schemaHash: string;
   options: RuntimeOption[];
+  filteredOptions: RuntimeOption[];
   diagnostics: string[];
 }
 

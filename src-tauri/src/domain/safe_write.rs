@@ -1145,12 +1145,16 @@ mod tests {
         let data_root = directory.path().join("data");
         let target = directory.path().join("config");
         let executable = validator(directory.path(), true);
-        let original = b"# keep this comment\nfont-size = 13\n";
+        let original = b"# keep this comment\nmacos-titlebar-style = native\nfont-size = 13\n";
         fs::write(&target, original).unwrap();
 
         let mut document = ConfigDocument::parse(original).unwrap();
         document.set_scalar("font-size", "14").unwrap();
         let staged = document.render();
+        assert_eq!(
+            staged,
+            b"# keep this comment\nmacos-titlebar-style = native\nfont-size = 14\n"
+        );
         assert!(
             validate_candidate(&executable, &target, &staged)
                 .unwrap()
