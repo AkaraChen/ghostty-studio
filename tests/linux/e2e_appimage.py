@@ -214,6 +214,12 @@ def main():
             timeout=60,
             diagnostic=lambda: repr(config_path.read_bytes()),
         )
+        wait_until(
+            "completed apply UI state",
+            lambda: "已保存。" in body_text() and "保存这些更改？" not in body_text(),
+            timeout=60,
+            diagnostic=lambda: body_text()[-2000:],
+        )
         if b"macos-titlebar-style = native" not in config_path.read_bytes():
             raise RuntimeError("platform-filtered setting changed during apply")
 
@@ -222,9 +228,15 @@ def main():
         wait_until("history action", lambda: click_text("button", "历史与恢复"))
         wait_until("snapshot history", lambda: "快照历史" in body_text())
         wait_until(
-            "snapshot restore action",
-            lambda: click_text("button.snapshot-restore-button", "恢复"),
+            "rendered snapshot restore action",
+            lambda: execute(
+                "return document.querySelectorAll('button.snapshot-restore-button:not([disabled])').length"
+            )
+            > 0,
+            diagnostic=lambda: body_text()[-2000:],
         )
+        if not click_text("button.snapshot-restore-button", "恢复"):
+            raise RuntimeError("snapshot restore action disappeared before click")
         wait_until(
             "restore confirmation",
             lambda: "恢复这个快照？" in body_text(),
