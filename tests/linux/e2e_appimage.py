@@ -221,8 +221,15 @@ def main():
         wait_until("utility menu", lambda: click_text("summary", "工具与恢复"))
         wait_until("history action", lambda: click_text("button", "历史与恢复"))
         wait_until("snapshot history", lambda: "快照历史" in body_text())
-        wait_until("restore action", lambda: click_text("button", "恢复"))
-        wait_until("restore confirmation", lambda: "恢复这个快照？" in body_text())
+        wait_until(
+            "snapshot restore action",
+            lambda: click_text("button.snapshot-restore-button", "恢复"),
+        )
+        wait_until(
+            "restore confirmation",
+            lambda: "恢复这个快照？" in body_text(),
+            diagnostic=lambda: body_text()[-2000:],
+        )
 
         restored = threading.Event()
         threading.Thread(
