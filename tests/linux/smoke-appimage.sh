@@ -28,15 +28,16 @@ printf '[T2] dependency closure passed; launching AppImage under Xvfb\n'
 # The single-quoted body is intentionally evaluated by the isolated inner shell.
 # shellcheck disable=SC2016
 timeout --signal=TERM --kill-after=5s 75s dbus-run-session -- xvfb-run -a sh -c '
-  setsid "$1/squashfs-root/AppRun" >"$2/app.log" 2>&1 &
+  "$1/squashfs-root/AppRun" >"$2/app.log" 2>&1 &
   app_pid=$!
   cleanup() {
-    kill -- "-$app_pid" 2>/dev/null || true
+    kill "$app_pid" 2>/dev/null || true
     wait "$app_pid" 2>/dev/null || true
   }
   trap cleanup EXIT
   for _ in $(seq 1 30); do
-    if window_id=$(xdotool search --name "Ghostty Studio" 2>/dev/null | head -n 1); then
+    window_id=$(xdotool search --name "Ghostty Studio" 2>/dev/null | sed -n "1p" || true)
+    if [ -n "$window_id" ]; then
       printf "[T2] window=%s; capturing pixels\n" "$window_id"
       timeout --signal=TERM --kill-after=2s 15s \
         import -window "$window_id" "$2/render.png" || {
