@@ -193,6 +193,7 @@ def main():
         wait_until(
             "font-size editor",
             lambda: execute("return document.querySelector('input[type=number]:not([disabled])')?.value") == "13",
+            diagnostic=lambda: body_text()[-2000:],
         )
         if not set_input("input[type=number]:not([disabled])", "14"):
             raise RuntimeError("font-size input is unavailable")

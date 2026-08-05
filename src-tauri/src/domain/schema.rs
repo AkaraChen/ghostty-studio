@@ -9,14 +9,17 @@ use crate::{
 };
 
 const AUDITED_GHOSTTY_VERSION: &str = "1.3.1";
-const AUDITED_SCHEMA_HASH: &str =
-    "5e36480fe2ec3d510ffc32de84c617fbaca10e1330c097185301b51ab9c10e6c";
+const AUDITED_SCHEMA_HASHES: &[&str] = &[
+    "5e36480fe2ec3d510ffc32de84c617fbaca10e1330c097185301b51ab9c10e6c",
+    // pkgforge-dev Ghostty 1.3.1 x86_64 AppImage used by the Linux release gate.
+    "acc95fe8726531505334a222b82c0eaef59acd4986fb4ccd8bb054eedbb83a9d",
+];
 
 pub fn load(executable: &Path, version: Option<String>) -> Result<RuntimeSchema, CommandError> {
     let document = ghostty::show_default_config_with_docs(executable)?;
     let schema_hash = hex(&Sha256::digest(document.as_bytes()));
-    let contract_matches =
-        version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) && schema_hash == AUDITED_SCHEMA_HASH;
+    let contract_matches = version.as_deref() == Some(AUDITED_GHOSTTY_VERSION)
+        && AUDITED_SCHEMA_HASHES.contains(&schema_hash.as_str());
     let parsed_options = parse_document(&document, contract_matches);
     let (options, filtered_options) = options_for_target(parsed_options, std::env::consts::OS);
     let diagnostics = if contract_matches {
@@ -384,7 +387,7 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), schema.options.len());
         if probe.version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) {
-            assert_eq!(schema.schema_hash, AUDITED_SCHEMA_HASH);
+            assert!(AUDITED_SCHEMA_HASHES.contains(&schema.schema_hash.as_str()));
             assert!(schema
                 .options
                 .iter()
