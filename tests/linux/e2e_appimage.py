@@ -32,7 +32,7 @@ def request(method, path, payload=None):
     return decoded.get("value")
 
 
-def wait_until(description, predicate, timeout=60):
+def wait_until(description, predicate, timeout=60, diagnostic=None):
     deadline = time.monotonic() + timeout
     last_error = None
     while time.monotonic() < deadline:
@@ -44,6 +44,11 @@ def wait_until(description, predicate, timeout=60):
             last_error = error
         time.sleep(0.25)
     stage(f"timeout while waiting for {description}; last_error={last_error}")
+    if diagnostic:
+        try:
+            stage(f"diagnostic for {description}: {diagnostic()}")
+        except Exception as error:
+            stage(f"diagnostic collection failed for {description}: {error}")
     raise RuntimeError(f"timed out waiting for {description}: {last_error}")
 
 
@@ -170,6 +175,7 @@ def main():
         wait_until(
             "configured macOS-only read-only notice",
             lambda: "仅适用于 macOS；当前 Linux 平台只读" in body_text(),
+            diagnostic=lambda: body_text()[-2000:],
         )
         read_only_value = execute(
             """

@@ -318,7 +318,7 @@ fn open_config_session(
     let revision = revision(&bytes);
     let session_id = Uuid::new_v4().to_string();
     let read_only = !candidate.writable || candidate.symlink;
-    let safe_keys = editable_scalar_keys(state)?;
+    let safe_keys = readable_scalar_keys(state)?;
     let all_values = document.values();
     let hidden_value_count = all_values
         .keys()
@@ -1502,6 +1502,7 @@ fn diagnostic_summary(diagnostics: &[String]) -> String {
     }
 }
 
+#[cfg(test)]
 fn editable_scalar_keys(state: &AppState) -> Result<HashSet<String>, CommandError> {
     let schema = state
         .runtime_schema
@@ -1514,6 +1515,20 @@ fn editable_scalar_keys(state: &AppState) -> Result<HashSet<String>, CommandErro
         )
     })?;
     Ok(editable_keys_from_schema(schema))
+}
+
+fn readable_scalar_keys(state: &AppState) -> Result<HashSet<String>, CommandError> {
+    let schema = state
+        .runtime_schema
+        .lock()
+        .map_err(|_| CommandError::new("state_poisoned", "schema state is unavailable"))?;
+    let schema = schema.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "schema_not_loaded",
+            "the runtime schema must be loaded before configuration values can be exposed",
+        )
+    })?;
+    Ok(readable_keys_from_schema(schema))
 }
 
 fn current_runtime_contract(state: &AppState) -> Result<CurrentRuntimeContract, CommandError> {
@@ -1577,6 +1592,21 @@ fn editable_keys_from_schema(schema: &RuntimeSchema) -> HashSet<String> {
         .options
         .iter()
         .filter(|option| option.editable && !option.repeatable && option.risk == "normal")
+        .map(|option| option.key.clone())
+        .collect()
+}
+
+fn readable_keys_from_schema(schema: &RuntimeSchema) -> HashSet<String> {
+    schema
+        .options
+        .iter()
+        .filter(|option| option.editable && !option.repeatable && option.risk == "normal")
+        .chain(
+            schema
+                .filtered_options
+                .iter()
+                .filter(|option| !option.repeatable && option.risk == "normal"),
+        )
         .map(|option| option.key.clone())
         .collect()
 }
@@ -1949,13 +1979,50 @@ mod tests {
                     editable: false,
                 },
             ],
-            filtered_options: Vec::new(),
+            filtered_options: vec![
+                models::RuntimeOption {
+                    key: "macos-titlebar-style".to_string(),
+                    description: String::new(),
+                    default_values: vec!["native".to_string()],
+                    current_values: Vec::new(),
+                    category: "macOS".to_string(),
+                    kind: "text".to_string(),
+                    choices: Vec::new(),
+                    repeatable: false,
+                    platform: Some("macOS".to_string()),
+                    since: None,
+                    risk: "normal".to_string(),
+                    editable: false,
+                },
+                models::RuntimeOption {
+                    key: "macos-shader".to_string(),
+                    description: String::new(),
+                    default_values: Vec::new(),
+                    current_values: Vec::new(),
+                    category: "macOS".to_string(),
+                    kind: "text".to_string(),
+                    choices: Vec::new(),
+                    repeatable: false,
+                    platform: Some("macOS".to_string()),
+                    since: None,
+                    risk: "advanced".to_string(),
+                    editable: false,
+                },
+            ],
         });
 
-        let allowed = editable_scalar_keys(&state).unwrap();
-        assert!(allowed.contains("font-size"));
-        assert!(!allowed.contains("command"));
-        assert!(!allowed.contains("font-family"));
+        let editable = editable_scalar_keys(&state).unwrap();
+        assert!(editable.contains("font-size"));
+        assert!(!editable.contains("command"));
+        assert!(!editable.contains("font-family"));
+        assert!(!editable.contains("macos-titlebar-style"));
+
+        let readable = readable_scalar_keys(&state).unwrap();
+        assert!(readable.contains("font-size"));
+        assert!(readable.contains("macos-titlebar-style"));
+        assert!(!readable.contains("command"));
+        assert!(!readable.contains("font-family"));
+        assert!(!readable.contains("macos-shader"));
     }
 
     #[test]
