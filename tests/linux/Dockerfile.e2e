@@ -1,6 +1,3 @@
-FROM rust:1.97.1-bullseye AS driver-builder
-RUN cargo install tauri-driver --version 2.0.6 --locked
-
 FROM ghostty-studio-appimage-smoke
 
 USER root
@@ -20,7 +17,7 @@ RUN apt-get update \
   && rm /tmp/Ghostty.AppImage \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=driver-builder /usr/local/cargo/bin/tauri-driver /usr/local/bin/tauri-driver
+COPY .tauri-driver-bin /usr/local/bin/tauri-driver
 COPY ghostty-wrapper.sh /usr/local/bin/ghostty
 COPY e2e-appimage.sh /usr/local/bin/e2e-appimage
 COPY e2e_appimage.py /usr/local/lib/ghostty-studio/e2e_appimage.py
