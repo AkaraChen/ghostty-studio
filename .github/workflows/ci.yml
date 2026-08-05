@@ -43,6 +43,7 @@ jobs:
   linux-appimage:
     name: Linux AppImage (x86_64, T1–T3)
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -64,6 +65,7 @@ jobs:
       - name: T1 build and inspect AppImage
         run: pnpm package:linux-local
       - name: T2 rendered smoke + T3 real Ghostty AppImage loop
+        timeout-minutes: 15
         run: pnpm test:linux-appimage
       - uses: actions/upload-artifact@v6
         with:

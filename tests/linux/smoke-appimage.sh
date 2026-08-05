@@ -23,15 +23,28 @@ export PATH="$HOME/.local/bin:/usr/bin:/bin"
 
 "/usr/local/bin/verify-appimage-dependencies" "$work/squashfs-root"
 
+printf '[T2] dependency closure passed; launching AppImage under Xvfb\n'
+
 # The single-quoted body is intentionally evaluated by the isolated inner shell.
 # shellcheck disable=SC2016
-dbus-run-session -- xvfb-run -a sh -c '
-  "$1/squashfs-root/AppRun" >"$2/app.log" 2>&1 &
+timeout --signal=TERM --kill-after=5s 75s dbus-run-session -- xvfb-run -a sh -c '
+  setsid "$1/squashfs-root/AppRun" >"$2/app.log" 2>&1 &
   app_pid=$!
-  trap "kill $app_pid 2>/dev/null || true" EXIT
+  cleanup() {
+    kill -- "-$app_pid" 2>/dev/null || true
+    wait "$app_pid" 2>/dev/null || true
+  }
+  trap cleanup EXIT
   for _ in $(seq 1 30); do
     if window_id=$(xdotool search --name "Ghostty Studio" 2>/dev/null | head -n 1); then
-      import -window "$window_id" "$2/render.png"
+      printf "[T2] window=%s; capturing pixels\n" "$window_id"
+      timeout --signal=TERM --kill-after=2s 15s \
+        import -window "$window_id" "$2/render.png" || {
+          status=$?
+          echo "screenshot command failed or timed out (status=$status)" >&2
+          cat "$2/app.log" >&2
+          exit "$status"
+        }
       read -r color_count deviation <<EOF
 $(convert "$2/render.png" -format "%k %[fx:standard_deviation]" info:)
 EOF
@@ -47,5 +60,6 @@ EOF
     sleep 1
   done
   cat "$2/app.log" >&2
+  echo "timed out waiting for the Ghostty Studio window" >&2
   exit 1
 ' sh "$work" "$work"

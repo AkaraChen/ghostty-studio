@@ -13,6 +13,10 @@ import urllib.request
 WEBDRIVER = "http://127.0.0.1:4444"
 
 
+def stage(message):
+    print(f"[T3] {message}", flush=True)
+
+
 def request(method, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -39,6 +43,7 @@ def wait_until(description, predicate, timeout=60):
         except Exception as error:  # transient WebDriver and renderer states
             last_error = error
         time.sleep(0.25)
+    stage(f"timeout while waiting for {description}; last_error={last_error}")
     raise RuntimeError(f"timed out waiting for {description}: {last_error}")
 
 
@@ -90,7 +95,9 @@ def main():
     session_id = None
 
     try:
+        stage("waiting for tauri-driver")
         wait_until("tauri-driver", lambda: request("GET", "/status"), timeout=30)
+        stage("creating AppImage WebDriver session")
         session = request(
             "POST",
             "/session",
@@ -140,12 +147,14 @@ def main():
                 [selector, value],
             )
 
+        stage("waiting for real Ghostty workspace")
         wait_until(
             "real Ghostty workspace",
             lambda: "配置编辑器" in body_text() and "Ghostty 1.3.1" in body_text(),
             timeout=90,
         )
 
+        stage("asserting rendered screenshot content")
         screenshot = request("GET", f"/session/{session_id}/screenshot")
         screenshot_path = pathlib.Path("/tmp/t3-render.png")
         screenshot_path.write_bytes(base64.b64decode(screenshot))
@@ -156,6 +165,7 @@ def main():
         if int(visual[0]) < 100 or float(visual[1]) < 0.05:
             raise RuntimeError(f"rendered content lacks visual variance: {visual}")
 
+        stage("checking configured foreign-platform key")
         wait_until("My Config navigation", lambda: click_text("button", "我的配置"))
         wait_until(
             "configured macOS-only read-only notice",
@@ -171,6 +181,7 @@ def main():
         if read_only_value != "native":
             raise RuntimeError("configured macOS-only value was not rendered read-only")
 
+        stage("editing font-size 13 to 14")
         if not set_input('input[aria-label="搜索设置"]', "font-size"):
             raise RuntimeError("search input is unavailable")
         wait_until(
@@ -181,10 +192,12 @@ def main():
             raise RuntimeError("font-size input is unavailable")
         wait_until("draft state", lambda: "1 项修改尚未保存" in body_text())
 
+        stage("validating with real Ghostty")
         if not click_text("button", "检查并保存"):
             raise RuntimeError("review button is unavailable")
         wait_until("real Ghostty validation", lambda: "Ghostty 验证通过" in body_text(), timeout=60)
 
+        stage("accepting native write confirmation and applying")
         accepted = threading.Event()
         threading.Thread(
             target=accept_native_dialog,
@@ -198,6 +211,7 @@ def main():
         if b"macos-titlebar-style = native" not in config_path.read_bytes():
             raise RuntimeError("platform-filtered setting changed during apply")
 
+        stage("restoring exact original bytes from snapshot")
         wait_until("utility menu", lambda: click_text("summary", "工具与恢复"))
         wait_until("history action", lambda: click_text("button", "历史与恢复"))
         wait_until("snapshot history", lambda: "快照历史" in body_text())
