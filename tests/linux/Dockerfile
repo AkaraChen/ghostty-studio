@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates dbus-x11 file xdotool xvfb \
+    ca-certificates dbus-x11 file fontconfig xdotool xvfb \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 smoke
 
