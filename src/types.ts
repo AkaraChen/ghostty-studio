@@ -127,6 +127,11 @@ export interface ChangePreview {
   valid: boolean;
 }
 
+export interface ConfirmationPrompt {
+  title: string;
+  message: string;
+}
+
 export interface ApplyResult {
   revision: string;
   snapshotId: string;
@@ -159,21 +164,34 @@ export interface Backend {
   loadConfigGraph(): Promise<ConfigGraph>;
   inspectExtensionManifest(manifest: string): Promise<ExtensionInspection>;
   openConfig(candidateId: string): Promise<ConfigSession>;
-  createConfig(candidateId: string): Promise<ConfigSession>;
+  prepareCreateConfigConfirmation(candidateId: string): Promise<ConfirmationPrompt>;
+  createConfig(candidateId: string, confirmedPrompt: ConfirmationPrompt | null): Promise<ConfigSession>;
   stageChanges(
     sessionId: string,
     revision: string,
     changes: DraftChange[],
   ): Promise<ChangePreview>;
+  prepareApplyChangesConfirmation(
+    sessionId: string,
+    revision: string,
+    token: string,
+  ): Promise<ConfirmationPrompt>;
   applyChanges(
     sessionId: string,
     revision: string,
     token: string,
+    confirmedPrompt: ConfirmationPrompt | null,
   ): Promise<ApplyResult>;
   listSnapshots(sessionId: string): Promise<SnapshotInfo[]>;
+  prepareRestoreSnapshotConfirmation(
+    sessionId: string,
+    revision: string,
+    snapshotId: string,
+  ): Promise<ConfirmationPrompt>;
   restoreSnapshot(
     sessionId: string,
     revision: string,
     snapshotId: string,
+    confirmedPrompt: ConfirmationPrompt | null,
   ): Promise<ApplyResult>;
 }

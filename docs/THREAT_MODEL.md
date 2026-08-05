@@ -10,7 +10,8 @@
 
 ## Trust boundaries
 
-- React/WebView is treated as potentially compromised.
+- React/WebView is treated as potentially compromised for filesystem data and IPC validation. Linux
+  user-presence confirmation is the explicit exception: it relies on the integrity of the packaged UI.
 - Rust code is trusted but validates every IPC input.
 - Ghostty CLI output is untrusted input with size/time limits.
 - Config and theme files are untrusted text.
@@ -24,7 +25,7 @@
 | WebView path traversal or arbitrary write | Opaque session ids, canonical-path allowlist, no generic fs plugin |
 | WebView creates or replaces an arbitrary config | Creation accepts only a freshly rediscovered backend-issued missing default candidate; dirfd/no-follow traversal and `O_EXCL` prevent overwrite |
 | Compromised WebView exfiltrates config secrets | Only audited normal scalar values cross IPC; sensitive/repeatable/unknown values stay in Rust; known paths are redacted and raw Ghostty diagnostics are withheld |
-| Compromised WebView silently applies a staged change | Backend-bound review token plus a Rust-triggered native system confirmation |
+| Compromised WebView silently applies a staged change | Backend-bound review token and exact backend prompt on both platforms; macOS additionally has native user-presence confirmation. Linux accepts the residual risk that a compromised packaged UI could bypass user presence, bounded by CSP/no remote content/no network permission |
 | Compromised WebView tricks snapshot restore | Integrity check and backend diff before confirmation; non-audited key changes are rejected; confirmation shows only trusted safe-key summary |
 | Arbitrary command execution | Hardcoded Ghostty executable discovery and argument builders; no shell interpolation |
 | Lost updates | Three revision checks, fully prepared temp before the final check, and immediate atomic persist; a tiny non-cooperating editor race remains documented |
@@ -47,7 +48,9 @@
 1. Serialize the state transition, resolve the opaque session, and atomically consume the review token.
 2. Reload and match the installed Ghostty version/schema contract; reject stale revisions/non-audited keys;
    for restore, verify the snapshot and compute a trusted backend diff.
-3. Require a Rust-triggered native system confirmation containing only trusted key/revision/size metadata.
+3. Require confirmation containing only trusted key/revision/size metadata. macOS uses a Rust-triggered
+   native system dialog. Linux requires the application to return the exact backend-generated title and
+   message that it displayed; a stale or altered prompt is rejected.
 4. Reload the runtime contract again, revalidate the candidate, then re-read the bounded regular target
    with no-follow semantics and compare revision.
 5. Acquire the private lock and repeat the revision check.
@@ -61,7 +64,7 @@
 
 1. Serialize mutation, resolve the opaque missing candidate, and require that no default layer exists.
 2. Constrain the target to a losslessly representable path inside the user home; validate fixed empty
-   content and the current default graph before showing native confirmation.
+   content and the current default graph before showing the platform confirmation.
 3. After confirmation, repeat candidate discovery, runtime-contract checks, empty validation, and path
    preflight.
 4. On Unix, walk from the approved root using directory descriptors and no-follow flags, create only
@@ -78,3 +81,15 @@
 - No network permission in the main editing window.
 - Logs contain option names and error classes, not raw values.
 - Export/sharing is an explicit separate action with a secret-field review.
+
+## Linux confirmation trade-off
+
+Linux intentionally uses an application-modal confirmation rather than a window-manager-backed system
+dialog for create, apply, and restore. The bundled WebView loads only packaged local resources: CSP keeps
+scripts and connections on trusted local/IPC origins, forbids frames, and the main window has no network
+permission. Within that boundary, a second system dialog adds little phishing resistance while GTK portal
+dialogs can block the entire mutation path on Linux desktops.
+
+The trade-off is explicit: Linux confirmation is not vouched for by the system window manager. The control
+instead relies on the trusted packaged UI, a focus-trapped `aria-modal` dialog, an exact prompt generated and
+rechecked by Rust, and the existing revision/token/path checks. macOS retains the native system dialog.

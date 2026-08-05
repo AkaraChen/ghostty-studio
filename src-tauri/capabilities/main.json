@@ -10,10 +10,13 @@
     "allow-inspect-extension-manifest",
     "allow-load-config-graph",
     "allow-open-config",
+    "allow-prepare-create-config-confirmation",
     "allow-create-config",
     "allow-stage-changes",
+    "allow-prepare-apply-changes-confirmation",
     "allow-apply-changes",
     "allow-list-snapshots",
+    "allow-prepare-restore-snapshot-confirmation",
     "allow-restore-snapshot"
   ]
 }

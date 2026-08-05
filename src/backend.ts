@@ -4,6 +4,7 @@ import type {
   Backend,
   ApplyResult,
   ChangePreview,
+  ConfirmationPrompt,
   ConfigGraph,
   ConfigSession,
   DraftChange,
@@ -34,8 +35,20 @@ class TauriBackend implements Backend {
     return invoke("open_config", { candidateId });
   }
 
-  createConfig(candidateId: string): Promise<ConfigSession> {
-    return invoke("create_config", { candidateId });
+  prepareCreateConfigConfirmation(candidateId: string): Promise<ConfirmationPrompt> {
+    return invoke("prepare_create_config_confirmation", { candidateId });
+  }
+
+  createConfig(candidateId: string, confirmedPrompt: ConfirmationPrompt | null): Promise<ConfigSession> {
+    return invoke("create_config", { candidateId, confirmedPrompt });
+  }
+
+  prepareApplyChangesConfirmation(
+    sessionId: string,
+    revision: string,
+    token: string,
+  ): Promise<ConfirmationPrompt> {
+    return invoke("prepare_apply_changes_confirmation", { sessionId, revision, token });
   }
 
   stageChanges(
@@ -50,8 +63,17 @@ class TauriBackend implements Backend {
     sessionId: string,
     revision: string,
     token: string,
+    confirmedPrompt: ConfirmationPrompt | null,
   ): Promise<ApplyResult> {
-    return invoke("apply_changes", { sessionId, revision, token });
+    return invoke("apply_changes", { sessionId, revision, token, confirmedPrompt });
+  }
+
+  prepareRestoreSnapshotConfirmation(
+    sessionId: string,
+    revision: string,
+    snapshotId: string,
+  ): Promise<ConfirmationPrompt> {
+    return invoke("prepare_restore_snapshot_confirmation", { sessionId, revision, snapshotId });
   }
 
   listSnapshots(sessionId: string): Promise<SnapshotInfo[]> {
@@ -62,8 +84,9 @@ class TauriBackend implements Backend {
     sessionId: string,
     revision: string,
     snapshotId: string,
+    confirmedPrompt: ConfirmationPrompt | null,
   ): Promise<ApplyResult> {
-    return invoke("restore_snapshot", { sessionId, revision, snapshotId });
+    return invoke("restore_snapshot", { sessionId, revision, snapshotId, confirmedPrompt });
   }
 }
 
@@ -178,8 +201,16 @@ class BrowserDemoBackend implements Backend {
     };
   }
 
-  async createConfig(_candidateId: string): Promise<ConfigSession> {
+  async prepareCreateConfigConfirmation(): Promise<ConfirmationPrompt> {
     throw new Error("浏览器演示模式不会创建本地配置文件");
+  }
+
+  async createConfig(): Promise<ConfigSession> {
+    throw new Error("浏览器演示模式不会创建本地配置文件");
+  }
+
+  async prepareApplyChangesConfirmation(): Promise<ConfirmationPrompt> {
+    throw new Error("浏览器演示模式禁止写入本地配置");
   }
 
   async stageChanges(
@@ -209,6 +240,10 @@ class BrowserDemoBackend implements Backend {
 
   async listSnapshots(_sessionId: string): Promise<SnapshotInfo[]> {
     return structuredClone(demoSnapshots);
+  }
+
+  async prepareRestoreSnapshotConfirmation(): Promise<ConfirmationPrompt> {
+    throw new Error("浏览器演示模式只展示示例快照，禁止恢复本地配置");
   }
 
   async restoreSnapshot(): Promise<ApplyResult> {

@@ -3461,6 +3461,18 @@ select,
   line-height: 1.45;
 }
 
+.confirmation-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.confirmation-message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
 .review-footer {
   padding: 13px 22px 18px;
   border-top: 1px solid var(--border-soft);

@@ -20,8 +20,8 @@ use domain::{
 };
 use error::CommandError;
 use models::{
-    ApplyResult, ChangePreview, ConfigCandidate, ConfigSession, DraftChange, EnvironmentReport,
-    RuntimeSchema,
+    ApplyResult, ChangePreview, ConfigCandidate, ConfigSession, ConfirmationPrompt, DraftChange,
+    EnvironmentReport, RuntimeSchema,
 };
 use tauri::{Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -379,8 +379,39 @@ fn open_config_session(
 }
 
 #[tauri::command]
+fn prepare_create_config_confirmation(
+    candidate_id: String,
+    state: State<'_, AppState>,
+) -> Result<ConfirmationPrompt, CommandError> {
+    if candidate_id.len() > 128 {
+        return Err(CommandError::new(
+            "invalid_candidate",
+            "candidate id is too long",
+        ));
+    }
+    let issued_candidate = state
+        .candidates
+        .lock()
+        .map_err(|_| CommandError::new("state_poisoned", "candidate state is unavailable"))?
+        .get(&candidate_id)
+        .cloned()
+        .ok_or_else(|| {
+            CommandError::new(
+                "unknown_candidate",
+                "configuration candidate was not issued by this application session",
+            )
+        })?;
+    let candidate = fresh_creation_candidate(&candidate_id, &issued_candidate)?;
+    let path = PathBuf::from(&candidate.path);
+    let home = creation_root_for(&candidate, &path)?;
+    safe_write::preflight_new_config(&path, &home)?;
+    Ok(create_config_prompt(&path))
+}
+
+#[tauri::command]
 async fn create_config(
     candidate_id: String,
+    confirmed_prompt: Option<ConfirmationPrompt>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ConfigSession, CommandError> {
@@ -416,15 +447,8 @@ async fn create_config(
             "Ghostty's current default configuration is already invalid; no file was created",
         ));
     }
-    let visible_path = display_path(&path);
-    require_native_confirmation(
-        &app,
-        format!(
-            "将在 {visible_path} 创建一个 0 字节的 Ghostty 配置文件。\n\n新目录权限为 0700，文件权限为 0600。若另一个程序先创建目标，Ghostty Studio 会停止，绝不会覆盖。"
-        ),
-        "创建配置",
-    )
-    .await?;
+    let prompt = create_config_prompt(&path);
+    require_confirmation(&app, &prompt, confirmed_prompt.as_ref()).await?;
     let confirmed_candidate = fresh_creation_candidate(&candidate_id, &issued_candidate)?;
     if confirmed_candidate.path != candidate.path {
         return Err(CommandError::new(
@@ -823,11 +847,59 @@ fn stage_changes(
 }
 
 #[tauri::command]
+fn prepare_apply_changes_confirmation(
+    session_id: String,
+    revision: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> Result<ConfirmationPrompt, CommandError> {
+    require_canonical_uuid(&session_id, "invalid_session_id", "session id")?;
+    require_canonical_uuid(&token, "invalid_stage_token", "review token")?;
+    require_revision(&revision)?;
+    let stage = state
+        .stages
+        .lock()
+        .map_err(|_| CommandError::new("state_poisoned", "stage state is unavailable"))?
+        .get(&token)
+        .cloned()
+        .ok_or_else(|| CommandError::new("unknown_stage", "review token is invalid or expired"))?;
+    if stage.session_id != session_id || stage.revision != revision {
+        return Err(CommandError::new(
+            "stage_mismatch",
+            "review token does not belong to this session and revision",
+        ));
+    }
+    if !stage.valid {
+        return Err(CommandError::new(
+            "validation_failed",
+            "Ghostty rejected the staged configuration",
+        ));
+    }
+    let session = open_session(&state, &session_id)?;
+    if session.read_only {
+        return Err(CommandError::new(
+            "read_only_session",
+            "this session has not been granted write access",
+        ));
+    }
+    if session.revision != revision {
+        return Err(CommandError::new(
+            "revision_conflict",
+            "the UI revision does not match the open configuration session",
+        ));
+    }
+    let contract = current_runtime_contract(&state)?;
+    require_current_change_keys(&stage.changes, &contract.editable_keys)?;
+    Ok(apply_changes_prompt(&stage))
+}
+
+#[tauri::command]
 async fn apply_changes(
     app: tauri::AppHandle,
     session_id: String,
     revision: String,
     token: String,
+    confirmed_prompt: Option<ConfirmationPrompt>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, CommandError> {
     require_canonical_uuid(&session_id, "invalid_session_id", "session id")?;
@@ -868,21 +940,8 @@ async fn apply_changes(
     }
     let contract = current_runtime_contract(&state)?;
     require_current_change_keys(&stage.changes, &contract.editable_keys)?;
-    require_native_confirmation(
-        &app,
-        format!(
-            "将保存 {} 项修改：{}。\n\n保存前会自动创建快照。",
-            stage.changes.len(),
-            stage
-                .changes
-                .iter()
-                .map(|change| change.key.as_str())
-                .collect::<Vec<_>>()
-                .join("、")
-        ),
-        "写入配置",
-    )
-    .await?;
+    let prompt = apply_changes_prompt(&stage);
+    require_confirmation(&app, &prompt, confirmed_prompt.as_ref()).await?;
     let contract = current_runtime_contract(&state)?;
     require_current_change_keys(&stage.changes, &contract.editable_keys)?;
     let current_validation =
@@ -940,6 +999,44 @@ async fn apply_changes(
 }
 
 #[tauri::command]
+fn prepare_restore_snapshot_confirmation(
+    app: tauri::AppHandle,
+    session_id: String,
+    revision: String,
+    snapshot_id: String,
+    state: State<'_, AppState>,
+) -> Result<ConfirmationPrompt, CommandError> {
+    require_canonical_uuid(&session_id, "invalid_session_id", "session id")?;
+    require_canonical_uuid(&snapshot_id, "invalid_snapshot_id", "snapshot id")?;
+    require_revision(&revision)?;
+    let session = open_session(&state, &session_id)?;
+    if session.read_only {
+        return Err(CommandError::new(
+            "read_only_session",
+            "this session has not been granted write access",
+        ));
+    }
+    if session.revision != revision {
+        return Err(CommandError::new(
+            "revision_conflict",
+            "the UI revision does not match the open configuration session",
+        ));
+    }
+    let data_root = app_data_root(&app)?;
+    let contract = current_runtime_contract(&state)?;
+    let prepared = prepare_snapshot_restore(
+        &data_root,
+        &contract.executable,
+        &session,
+        &revision,
+        &snapshot_id,
+    )?;
+    enforce_snapshot_restore_policy(&prepared, &contract.editable_keys)?;
+    let key_summary = snapshot_key_summary(&prepared);
+    Ok(restore_snapshot_prompt(&prepared, &key_summary))
+}
+
+#[tauri::command]
 fn list_snapshots(
     app: tauri::AppHandle,
     session_id: String,
@@ -955,6 +1052,7 @@ async fn restore_snapshot(
     session_id: String,
     revision: String,
     snapshot_id: String,
+    confirmed_prompt: Option<ConfirmationPrompt>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, CommandError> {
     require_canonical_uuid(&snapshot_id, "invalid_snapshot_id", "snapshot id")?;
@@ -983,22 +1081,9 @@ async fn restore_snapshot(
         &snapshot_id,
     )?;
     enforce_snapshot_restore_policy(&prepared, &contract.editable_keys)?;
-    let key_summary = if prepared.changed_keys.is_empty() {
-        "仅文本、注释或格式发生变化".to_string()
-    } else {
-        prepared.changed_keys.join("、")
-    };
-    require_native_confirmation(
-        &app,
-        format!(
-            "将恢复快照 {}（{} bytes）。\n\n包含的修改：{}\n\n恢复前会备份当前配置，并确认文件没有被其他程序修改。",
-            &prepared.snapshot.id[..8],
-            prepared.snapshot.size_bytes,
-            key_summary
-        ),
-        "恢复快照",
-    )
-    .await?;
+    let key_summary = snapshot_key_summary(&prepared);
+    let prompt = restore_snapshot_prompt(&prepared, &key_summary);
+    require_confirmation(&app, &prompt, confirmed_prompt.as_ref()).await?;
     let contract = current_runtime_contract(&state)?;
     enforce_snapshot_restore_policy(&prepared, &contract.editable_keys)?;
     let current_validation = safe_write::validate_candidate(
@@ -1663,19 +1748,74 @@ fn display_path(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
-async fn require_native_confirmation(
+fn create_config_prompt(path: &Path) -> ConfirmationPrompt {
+    ConfirmationPrompt {
+        title: "创建配置".to_string(),
+        message: format!(
+            "将在 {} 创建一个 0 字节的 Ghostty 配置文件。\n\n新目录权限为 0700，文件权限为 0600。若另一个程序先创建目标，Ghostty Studio 会停止，绝不会覆盖。",
+            display_path(path)
+        ),
+    }
+}
+
+fn apply_changes_prompt(stage: &StagedCandidate) -> ConfirmationPrompt {
+    ConfirmationPrompt {
+        title: "写入配置".to_string(),
+        message: format!(
+            "将保存 {} 项修改：{}。\n\n保存前会自动创建快照。",
+            stage.changes.len(),
+            stage
+                .changes
+                .iter()
+                .map(|change| change.key.as_str())
+                .collect::<Vec<_>>()
+                .join("、")
+        ),
+    }
+}
+
+fn snapshot_key_summary(prepared: &PreparedSnapshotRestore) -> String {
+    if prepared.changed_keys.is_empty() {
+        "仅文本、注释或格式发生变化".to_string()
+    } else {
+        prepared.changed_keys.join("、")
+    }
+}
+
+fn restore_snapshot_prompt(
+    prepared: &PreparedSnapshotRestore,
+    key_summary: &str,
+) -> ConfirmationPrompt {
+    ConfirmationPrompt {
+        title: "恢复快照".to_string(),
+        message: format!(
+            "将恢复快照 {}（{} bytes）。\n\n包含的修改：{}\n\n恢复前会备份当前配置，并确认文件没有被其他程序修改。",
+            &prepared.snapshot.id[..8],
+            prepared.snapshot.size_bytes,
+            key_summary
+        ),
+    }
+}
+
+async fn require_confirmation(
     app: &tauri::AppHandle,
-    message: String,
-    confirm_label: &'static str,
+    prompt: &ConfirmationPrompt,
+    confirmed_prompt: Option<&ConfirmationPrompt>,
 ) -> Result<(), CommandError> {
+    if confirmation_mode(std::env::consts::OS) == ConfirmationMode::Application {
+        return require_application_confirmation(prompt, confirmed_prompt);
+    }
+
     let app = app.clone();
+    let message = prompt.message.clone();
+    let confirm_label = prompt.title.clone();
     let confirmed = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .message(message)
-            .title(confirm_label)
+            .title(&confirm_label)
             .kind(MessageDialogKind::Warning)
             .buttons(MessageDialogButtons::OkCancelCustom(
-                confirm_label.to_string(),
+                confirm_label,
                 "取消".to_string(),
             ))
             .blocking_show()
@@ -1694,6 +1834,33 @@ async fn require_native_confirmation(
             "native_confirmation_cancelled",
             "已取消操作。",
         ))
+    }
+}
+
+fn require_application_confirmation(
+    prompt: &ConfirmationPrompt,
+    confirmed_prompt: Option<&ConfirmationPrompt>,
+) -> Result<(), CommandError> {
+    match confirmed_prompt {
+        Some(confirmed) if confirmed == prompt => Ok(()),
+        _ => Err(CommandError::new(
+            "confirmation_required",
+            "the current Linux operation has not been confirmed in the application",
+        )),
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum ConfirmationMode {
+    Application,
+    Native,
+}
+
+fn confirmation_mode(target_os: &str) -> ConfirmationMode {
+    if target_os == "linux" {
+        ConfirmationMode::Application
+    } else {
+        ConfirmationMode::Native
     }
 }
 
@@ -1739,10 +1906,13 @@ pub fn run() {
             inspect_extension_manifest,
             load_config_graph,
             open_config,
+            prepare_create_config_confirmation,
             create_config,
             stage_changes,
+            prepare_apply_changes_confirmation,
             apply_changes,
             list_snapshots,
+            prepare_restore_snapshot_confirmation,
             restore_snapshot,
         ])
         .run(tauri::generate_context!())
@@ -1839,6 +2009,57 @@ mod tests {
             "mutation_in_progress"
         );
         drop(guard);
+        assert!(acquire_mutation(&state).is_ok());
+    }
+
+    #[test]
+    fn linux_uses_application_confirmation_and_macos_keeps_native_confirmation() {
+        assert_eq!(confirmation_mode("linux"), ConfirmationMode::Application);
+        assert_eq!(confirmation_mode("macos"), ConfirmationMode::Native);
+    }
+
+    #[test]
+    fn application_confirmation_requires_the_exact_backend_prompt() {
+        let prompt = ConfirmationPrompt {
+            title: "写入配置".to_string(),
+            message: "将保存 1 项修改：font-size。\n\n保存前会自动创建快照。".to_string(),
+        };
+        assert!(require_application_confirmation(&prompt, Some(&prompt)).is_ok());
+
+        let altered = ConfirmationPrompt {
+            title: prompt.title.clone(),
+            message: "将保存 1 项修改。".to_string(),
+        };
+        assert_eq!(
+            require_application_confirmation(&prompt, Some(&altered))
+                .unwrap_err()
+                .code,
+            "confirmation_required"
+        );
+        assert_eq!(
+            require_application_confirmation(&prompt, None)
+                .unwrap_err()
+                .code,
+            "confirmation_required"
+        );
+    }
+
+    #[test]
+    fn rejected_application_confirmation_releases_the_mutation_guard() {
+        let state = AppState::default();
+        let prompt = ConfirmationPrompt {
+            title: "创建配置".to_string(),
+            message: "trusted".to_string(),
+        };
+        {
+            let _guard = acquire_mutation(&state).unwrap();
+            assert_eq!(
+                require_application_confirmation(&prompt, None)
+                    .unwrap_err()
+                    .code,
+                "confirmation_required"
+            );
+        }
         assert!(acquire_mutation(&state).is_ok());
     }
 

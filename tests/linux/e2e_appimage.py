@@ -5,7 +5,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -50,39 +49,6 @@ def wait_until(description, predicate, timeout=60, diagnostic=None):
         except Exception as error:
             stage(f"diagnostic collection failed for {description}: {error}")
     raise RuntimeError(f"timed out waiting for {description}: {last_error}")
-
-
-def accept_native_dialog(title, accepted):
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        result = subprocess.run(
-            ["xdotool", "search", "--name", title],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        for window_id in result.stdout.split():
-            stage(f"accepting native dialog title={title!r} window={window_id}")
-            focus = subprocess.run(
-                ["xdotool", "windowfocus", "--sync", window_id],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            key = subprocess.run(
-                ["xdotool", "key", "--window", window_id, "Return"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if focus.returncode == 0 and key.returncode == 0:
-                accepted.set()
-                return
-            stage(
-                f"native dialog input failed: focus={focus.returncode} "
-                f"key={key.returncode} stderr={(focus.stderr + key.stderr).strip()}"
-            )
-        time.sleep(0.2)
 
 
 def main():
@@ -198,16 +164,18 @@ def main():
             raise RuntimeError("review button is unavailable")
         wait_until("real Ghostty validation", lambda: "Ghostty 验证通过" in body_text(), timeout=60)
 
-        stage("accepting native write confirmation and applying")
-        accepted = threading.Event()
-        threading.Thread(
-            target=accept_native_dialog,
-            args=("写入配置", accepted),
-            daemon=True,
-        ).start()
+        stage("accepting application write confirmation and applying")
         if not click_text("button", "保存到 Ghostty"):
             raise RuntimeError("save button is unavailable")
-        wait_until("native write confirmation", accepted.is_set, timeout=30)
+        wait_until(
+            "application write confirmation",
+            lambda: execute(
+                "return document.querySelector('[role=dialog][aria-modal=true] .confirmation-message')?.textContent"
+            ) == "将保存 1 项修改：font-size。\n\n保存前会自动创建快照。",
+            diagnostic=lambda: body_text()[-2000:],
+        )
+        if not click_text("button", "写入配置"):
+            raise RuntimeError("application write confirmation button is unavailable")
         wait_until(
             "applied config",
             lambda: config_path.read_bytes() == changed,
@@ -243,15 +211,16 @@ def main():
             diagnostic=lambda: body_text()[-2000:],
         )
 
-        restored = threading.Event()
-        threading.Thread(
-            target=accept_native_dialog,
-            args=("恢复快照", restored),
-            daemon=True,
-        ).start()
         if not click_text("button", "确认恢复"):
             raise RuntimeError("confirm restore button is unavailable")
-        wait_until("native restore confirmation", restored.is_set, timeout=30)
+        wait_until(
+            "application restore confirmation",
+            lambda: "恢复前会备份当前配置" in body_text()
+            and execute("return document.querySelector('[role=dialog][aria-modal=true]') !== null"),
+            diagnostic=lambda: body_text()[-2000:],
+        )
+        if not click_text("button", "恢复快照"):
+            raise RuntimeError("application restore confirmation button is unavailable")
         wait_until("restored config", lambda: config_path.read_bytes() == original, timeout=60)
 
         print(

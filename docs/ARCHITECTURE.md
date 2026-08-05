@@ -36,7 +36,8 @@ paths and deterministic ids are replaced with per-response opaque layer labels.
 6. Unknown settings and invalid-but-preservable lines survive every operation.
 7. The UI cannot choose an arbitrary executable or shell command.
 8. New Ghostty keys are read-only until their generic editor behavior is audited.
-9. A renderer-issued Apply cannot bypass the native confirmation dialog.
+9. A renderer-issued Apply cannot bypass confirmation: Linux must return the exact backend-issued
+   application prompt, while macOS retains the native confirmation dialog.
 10. Creating a missing config accepts only a backend-issued default candidate, never overwrites, and
     never automatically deletes a path after creation because portable POSIX APIs cannot atomically
     compare an inode and unlink its directory entry.
@@ -64,7 +65,7 @@ confirmation and revalidate the candidate before any write.
 
 `create_config` is a separate transaction, not a special case of opening or saving. It accepts only
 an issued missing candidate, rejects any existing default layer, validates fixed empty content, asks
-for native confirmation, and then repeats discovery and contract checks. Unix creation walks from a
+for platform confirmation, and then repeats discovery and contract checks. Unix creation walks from a
 trusted home dirfd with no-follow semantics, creates missing directories as `0700`, and opens the
 final file with `O_EXCL` as `0600`. Post-creation discovery must find exactly one matching default
 layer. Any uncertainty refreshes backend state and preserves all files for explicit recovery.

@@ -93,6 +93,13 @@ pub struct ChangePreview {
     pub valid: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmationPrompt {
+    pub title: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyResult {

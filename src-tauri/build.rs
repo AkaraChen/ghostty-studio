@@ -5,10 +5,13 @@ fn main() {
         "inspect_extension_manifest",
         "load_config_graph",
         "open_config",
+        "prepare_create_config_confirmation",
         "create_config",
         "stage_changes",
+        "prepare_apply_changes_confirmation",
         "apply_changes",
         "list_snapshots",
+        "prepare_restore_snapshot_confirmation",
         "restore_snapshot",
     ];
 

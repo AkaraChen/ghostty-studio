@@ -135,4 +135,46 @@ describe("primary application journey", () => {
     expect(container.querySelector('[role="dialog"] h2')?.textContent).toBe("选择配置");
     expect(backend.stageChanges).not.toHaveBeenCalled();
   });
+
+  it("keeps the draft and performs no write when application confirmation is cancelled", async () => {
+    const preferred = environment.candidates[0];
+    window.localStorage.setItem("ghostty-studio:preferred-candidate", preferred.id);
+    vi.spyOn(backend, "prepareApplyChangesConfirmation").mockResolvedValue({
+      title: "写入配置",
+      message: "将保存 1 项修改：background-opacity。\n\n保存前会自动创建快照。",
+    });
+    const apply = vi.spyOn(backend, "applyChanges");
+
+    act(() => root.render(<App />));
+    await settle();
+    const percentage = container.querySelector<HTMLInputElement>(
+      'input[aria-label="背景不透明度 百分比"]',
+    )!;
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      valueSetter.call(percentage, "88");
+      percentage.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => container.querySelector<HTMLButtonElement>(".draft-dock .button--primary")!.click());
+    await settle();
+    expect(container.textContent).toContain("Ghostty 验证通过");
+    act(() => {
+      [...container.querySelectorAll<HTMLButtonElement>(".review-footer button")]
+        .find((button) => button.textContent === "保存到 Ghostty")!
+        .click();
+    });
+    await settle();
+
+    expect(container.querySelector(".confirmation-message")?.textContent).toContain("background-opacity");
+    act(() => {
+      [...container.querySelectorAll<HTMLButtonElement>(".confirmation-dialog button")]
+        .find((button) => button.textContent === "取消")!
+        .click();
+    });
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 项修改尚未保存");
+    expect(container.textContent).toContain("已取消操作。");
+  });
 });

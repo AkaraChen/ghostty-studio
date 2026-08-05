@@ -46,6 +46,6 @@ restored exactly.
 
 The automated checks do not replace the distribution and desktop matrix. Before a public release,
 manually cover Ubuntu 24.04, Debian 12, Fedora, and Arch (T4). T5 requires a real Linux desktop and
-must pass on both Wayland and X11, including HiDPI and native confirmation dialogs, before any public
+must pass on both Wayland and X11, including HiDPI and the application confirmation dialogs, before any public
 Linux release. CI/Xvfb evidence does not waive this release gate. Network filesystems remain outside
 the supported write-safety matrix.
