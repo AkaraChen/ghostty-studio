@@ -1,0 +1,218 @@
+{
+  "audited_contract": {
+    "background": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          "#282c34"
+        ],
+        "docs_sha256": "f518da378c7a96731c84cf30d631bc7e03af0ae87c51cca07171e19a820c5ffd"
+      },
+      "pkgforge": {
+        "defaults": [
+          "#282c34"
+        ],
+        "docs_sha256": "f518da378c7a96731c84cf30d631bc7e03af0ae87c51cca07171e19a820c5ffd"
+      }
+    },
+    "background-opacity": {
+      "choices": [],
+      "kind": "number",
+      "official": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "64fabde2cbd6656bb72e22c975976148d0d6afae94e21e493e5cb1f7c5fab3e5"
+      },
+      "pkgforge": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "64fabde2cbd6656bb72e22c975976148d0d6afae94e21e493e5cb1f7c5fab3e5"
+      }
+    },
+    "cursor-color": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "b76e9bed4d9328567fe4cce57808e22247c87f4b58a4fdbca3f53c718a9a050d"
+      },
+      "pkgforge": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "b76e9bed4d9328567fe4cce57808e22247c87f4b58a4fdbca3f53c718a9a050d"
+      }
+    },
+    "cursor-opacity": {
+      "choices": [],
+      "kind": "number",
+      "official": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "5a911cc87cd13ff8e4824713cadf608f7df4f549bc5715665231e5350f7eff47"
+      },
+      "pkgforge": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "5a911cc87cd13ff8e4824713cadf608f7df4f549bc5715665231e5350f7eff47"
+      }
+    },
+    "cursor-style": {
+      "choices": [
+        "block",
+        "bar",
+        "underline",
+        "block_hollow"
+      ],
+      "kind": "select",
+      "official": {
+        "defaults": [
+          "block"
+        ],
+        "docs_sha256": "c6a4549a6ea7144d60a25c1f4f6188b97fbae44d26c6aae46634e240867d9d23"
+      },
+      "pkgforge": {
+        "defaults": [
+          "block"
+        ],
+        "docs_sha256": "c6a4549a6ea7144d60a25c1f4f6188b97fbae44d26c6aae46634e240867d9d23"
+      }
+    },
+    "font-size": {
+      "choices": [],
+      "kind": "number",
+      "official": {
+        "defaults": [
+          "12"
+        ],
+        "docs_sha256": "6be02174095c5006a400e0ab3132817daefe45f49e6a43405746df08279c5eec"
+      },
+      "pkgforge": {
+        "defaults": [
+          "12"
+        ],
+        "docs_sha256": "6be02174095c5006a400e0ab3132817daefe45f49e6a43405746df08279c5eec"
+      }
+    },
+    "foreground": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          "#ffffff"
+        ],
+        "docs_sha256": "e1b6994563690dc444d40f2e827f1fe415b6e319159c787bdbeda6c840422723"
+      },
+      "pkgforge": {
+        "defaults": [
+          "#ffffff"
+        ],
+        "docs_sha256": "e1b6994563690dc444d40f2e827f1fe415b6e319159c787bdbeda6c840422723"
+      }
+    },
+    "minimum-contrast": {
+      "choices": [],
+      "kind": "number",
+      "official": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "929d96468a5abfea76253f0a2871ca684eeedfd935a7f6bef03ec9809e220b2c"
+      },
+      "pkgforge": {
+        "defaults": [
+          "1"
+        ],
+        "docs_sha256": "929d96468a5abfea76253f0a2871ca684eeedfd935a7f6bef03ec9809e220b2c"
+      }
+    },
+    "selection-background": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "pkgforge": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "selection-foreground": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "b46b3a66fa177494123d9c9ac40563ae5571a1a8e4997f50b239ce0139b94c9a"
+      },
+      "pkgforge": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "b46b3a66fa177494123d9c9ac40563ae5571a1a8e4997f50b239ce0139b94c9a"
+      }
+    },
+    "split-divider-color": {
+      "choices": [],
+      "kind": "color",
+      "official": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "516c9e8dd44efc4b7ee88398229164a3c73f316cb77aa21fac0aa6f4152e0d2c"
+      },
+      "pkgforge": {
+        "defaults": [
+          ""
+        ],
+        "docs_sha256": "516c9e8dd44efc4b7ee88398229164a3c73f316cb77aa21fac0aa6f4152e0d2c"
+      }
+    },
+    "unfocused-split-opacity": {
+      "choices": [],
+      "kind": "number",
+      "official": {
+        "defaults": [
+          "0.7"
+        ],
+        "docs_sha256": "40c270d026ea96956718a0ed3bda1c6bef48b2079cac05328ab2ce7b4921b8bc"
+      },
+      "pkgforge": {
+        "defaults": [
+          "0.7"
+        ],
+        "docs_sha256": "40c270d026ea96956718a0ed3bda1c6bef48b2079cac05328ab2ce7b4921b8bc"
+      }
+    }
+  },
+  "full_schema": {
+    "byte_identical": true,
+    "official_sha256": "acc95fe8726531505334a222b82c0eaef59acd4986fb4ccd8bb054eedbb83a9d",
+    "pkgforge_sha256": "acc95fe8726531505334a222b82c0eaef59acd4986fb4ccd8bb054eedbb83a9d"
+  },
+  "sources": {
+    "official": {
+      "name": "Ghostty stable snap amd64 revision 820",
+      "sha256": "dde45721e9fe0ae93852e78e26529cdda56051d1d43b0707dc7c96e5de7a0f47",
+      "url": "https://api.snapcraft.io/api/v1/snaps/download/0Js0ucdWpbxjd5LqmGT5MVUywEWyNbvs_820.snap"
+    },
+    "pkgforge": {
+      "name": "pkgforge-dev Ghostty 1.3.1 x86_64 AppImage",
+      "sha256": "fde48d2b716afd1978766879bbf1aae30dd305e8ad86a1037a2614a14d82dc28",
+      "url": "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-x86_64.AppImage"
+    }
+  }
+}

@@ -230,22 +230,33 @@ fn risk_for(key: &str) -> &'static str {
 fn audited_contract(key: &str) -> Option<(&'static str, &'static [&'static str])> {
     const NO_CHOICES: &[&str] = &[];
     const CURSOR_STYLES: &[&str] = &["block", "bar", "underline", "block_hollow"];
-    match key {
-        "font-size"
-        | "minimum-contrast"
-        | "background-opacity"
-        | "cursor-opacity"
-        | "unfocused-split-opacity" => Some(("number", NO_CHOICES)),
-        "background"
-        | "foreground"
-        | "selection-foreground"
-        | "selection-background"
-        | "cursor-color"
-        | "split-divider-color" => Some(("color", NO_CHOICES)),
-        "cursor-style" => Some(("select", CURSOR_STYLES)),
-        _ => None,
+    if AUDITED_NUMBER_KEYS.contains(&key) {
+        Some(("number", NO_CHOICES))
+    } else if AUDITED_COLOR_KEYS.contains(&key) {
+        Some(("color", NO_CHOICES))
+    } else if key == "cursor-style" {
+        Some(("select", CURSOR_STYLES))
+    } else {
+        None
     }
 }
+
+const AUDITED_NUMBER_KEYS: &[&str] = &[
+    "font-size",
+    "minimum-contrast",
+    "background-opacity",
+    "cursor-opacity",
+    "unfocused-split-opacity",
+];
+
+const AUDITED_COLOR_KEYS: &[&str] = &[
+    "background",
+    "foreground",
+    "selection-foreground",
+    "selection-background",
+    "cursor-color",
+    "split-divider-color",
+];
 
 fn platform_for(key: &str, description: &str) -> Option<String> {
     let lower = description.to_ascii_lowercase();
@@ -281,6 +292,34 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct AuditedSchemaEvidence {
+        full_schema: FullSchemaEvidence,
+        audited_contract: BTreeMap<String, OptionEvidence>,
+    }
+
+    #[derive(Deserialize)]
+    struct FullSchemaEvidence {
+        official_sha256: String,
+        pkgforge_sha256: String,
+        byte_identical: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct OptionEvidence {
+        kind: String,
+        choices: Vec<String>,
+        official: ObservedOption,
+        pkgforge: ObservedOption,
+    }
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct ObservedOption {
+        defaults: Vec<String>,
+        docs_sha256: String,
+    }
 
     #[test]
     fn parses_documentation_defaults_and_repeatable_values() {
@@ -369,6 +408,52 @@ mod tests {
             compatibility_diagnostic(Some("1.3.1"), GHOSTTY_1_3_1_SCHEMA_HASHES[0], true),
             None
         );
+    }
+
+    #[test]
+    fn audited_contract_matches_the_archived_1_3_1_build_diff() {
+        let evidence: AuditedSchemaEvidence = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/ghostty-1.3.1-schema-audit.json"
+        ))
+        .unwrap();
+        assert!(evidence.full_schema.byte_identical);
+        assert_eq!(
+            evidence.full_schema.official_sha256,
+            evidence.full_schema.pkgforge_sha256
+        );
+        assert!(schema_contract_is_audited(
+            Some("1.3.1"),
+            &evidence.full_schema.official_sha256
+        ));
+
+        let expected_keys = AUDITED_NUMBER_KEYS
+            .iter()
+            .chain(AUDITED_COLOR_KEYS)
+            .copied()
+            .chain(std::iter::once("cursor-style"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            evidence
+                .audited_contract
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            expected_keys
+        );
+
+        for (key, observed) in evidence.audited_contract {
+            assert_eq!(observed.official, observed.pkgforge, "{key}");
+            let (kind, choices) = audited_contract(&key).expect("evidence key must be audited");
+            assert_eq!(observed.kind, kind, "{key}");
+            assert_eq!(
+                observed.choices,
+                choices
+                    .iter()
+                    .map(|choice| choice.to_string())
+                    .collect::<Vec<_>>(),
+                "{key}"
+            );
+        }
     }
 
     #[test]
