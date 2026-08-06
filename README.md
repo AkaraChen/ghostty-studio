@@ -52,8 +52,9 @@ Ghostty Studio is an early preview. The source is ready to explore, but a few li
 
 ## Run locally
 
-You will need macOS 11 or later, Ghostty, Xcode Command Line Tools, Node 22.11, pnpm 10, and Rust.
-The repository pins the expected Node and Rust versions.
+You will need Ghostty, Node 22.11, pnpm 10, Rust, and the platform dependencies for macOS or Linux.
+The repository pins the expected Node and Rust versions. See [Linux development and AppImage](docs/LINUX.md)
+for the Ubuntu setup and x86_64 packaging path.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -76,6 +77,13 @@ Build an ad-hoc signed app and a local DMG:
 
 ```bash
 pnpm package:macos-local
+```
+
+Build and verify the x86_64 Linux AppImage on Ubuntu 22.04:
+
+```bash
+pnpm package:linux-local
+pnpm test:linux-appimage
 ```
 
 The local package is for development and personal installation; it is not notarized and does not

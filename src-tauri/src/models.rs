@@ -58,6 +58,7 @@ pub struct RuntimeSchema {
     pub ghostty_version: Option<String>,
     pub schema_hash: String,
     pub options: Vec<RuntimeOption>,
+    pub filtered_options: Vec<RuntimeOption>,
     pub diagnostics: Vec<String>,
 }
 
@@ -90,6 +91,13 @@ pub struct ChangePreview {
     pub unified_diff: String,
     pub diagnostics: Vec<String>,
     pub valid: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmationPrompt {
+    pub title: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

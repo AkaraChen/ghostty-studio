@@ -24,6 +24,7 @@ import {
 import { backend, isDesktop } from "./backend";
 import { ConfigSourcePanel } from "./components/ConfigSourcePanel";
 import { ConfigGraphPanel } from "./components/ConfigGraphPanel";
+import { ConfirmationDialog } from "./components/ConfirmationDialog";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { SetupPage } from "./components/SetupPage";
 import { SettingRow } from "./components/SettingRow";
@@ -39,6 +40,12 @@ import {
 } from "./productModel";
 import type { CompatibilityChange } from "./productModel";
 import { changeSetsEqual, ReviewGuard } from "./reviewGuard";
+import { modifierLabelForPlatform } from "./platform";
+import {
+  configuredFilteredOptions,
+  initialValues,
+  valuesForSession,
+} from "./sessionValues";
 import { copyForSetting } from "./settingCopy";
 import {
   chooseStartupCandidate,
@@ -52,6 +59,7 @@ import type {
   ConfigCandidate,
   ConfigGraph,
   ConfigSession,
+  ConfirmationPrompt,
   DraftChange,
   EnvironmentReport,
   RuntimeOption,
@@ -61,6 +69,11 @@ import type {
 
 const LAST_CATEGORY_KEY = "ghostty-studio:last-category";
 const PREFERRED_CANDIDATE_KEY = "ghostty-studio:preferred-candidate";
+
+type PendingConfirmation =
+  | { kind: "create"; prompt: ConfirmationPrompt; candidate: ConfigCandidate }
+  | { kind: "apply"; prompt: ConfirmationPrompt }
+  | { kind: "restore"; prompt: ConfirmationPrompt; snapshot: SnapshotInfo };
 
 function readPreference(key: string): string | null {
   try {
@@ -76,28 +89,6 @@ function writePreference(key: string, value: string) {
   } catch {
     // Preferences improve continuity but never block configuration work.
   }
-}
-
-function initialValues(options: RuntimeOption[]): Record<string, string> {
-  return Object.fromEntries(
-    options.map((option) => [
-      option.key,
-      option.defaultValues[0] ?? "",
-    ]),
-  );
-}
-
-function valuesForSession(
-  options: RuntimeOption[],
-  session: ConfigSession,
-): Record<string, string> {
-  const values = initialValues(options);
-  for (const [key, configuredValues] of Object.entries(session.values)) {
-    if (configuredValues.length > 0 && key in values) {
-      values[key] = configuredValues[configuredValues.length - 1];
-    }
-  }
-  return values;
 }
 
 function errorMessage(error: unknown): string {
@@ -122,6 +113,7 @@ function errorMessage(error: unknown): string {
     mutation_in_progress: "另一项配置操作正在进行，请稍后再试。",
     native_confirmation_failed: "无法打开系统确认窗口。",
     native_confirmation_cancelled: "已取消操作。",
+    confirmation_required: "确认内容已过期或不完整；配置未修改，请重新确认。",
     snapshot_requires_specialized_restore: "这个快照包含当前版本无法自动恢复的设置。",
     missing_config: "配置文件不存在。",
     config_already_exists: "目标配置已经出现；为避免覆盖，请重新检查环境。",
@@ -269,8 +261,10 @@ export default function App() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [restoringSnapshotId, setRestoringSnapshotId] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [confirmationProcessing, setConfirmationProcessing] = useState(false);
 
-  dialogOpenRef.current = reviewOpen || graphOpen || sourcePanelOpen || historyOpen;
+  dialogOpenRef.current = reviewOpen || graphOpen || sourcePanelOpen || historyOpen || pendingConfirmation !== null;
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -315,7 +309,7 @@ export default function App() {
             const opened = await backend.openConfig(candidate.id);
             if (!cancelled) {
               setSession(opened);
-              Object.assign(values, valuesForSession(resources.schema.options, opened));
+              Object.assign(values, valuesForSession(resources.schema, opened));
             }
           } catch (openError) {
             if (!cancelled) setError(errorMessage(openError));
@@ -356,6 +350,12 @@ export default function App() {
     });
   }, [schema]);
 
+  const platformRestrictedKeys = useMemo(() => new Set(
+    schema ? configuredFilteredOptions(schema, session).map((option) => option.key) : [],
+  ), [schema, session]);
+  const modifierLabel = modifierLabelForPlatform(environment?.platform);
+  const usesApplicationConfirmation = environment?.platform.toLocaleLowerCase() === "linux";
+
   useEffect(() => {
     if (!schema) return;
     const validCategories = new Set([
@@ -373,7 +373,14 @@ export default function App() {
 
   const visibleOptions = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    const options = (schema?.options ?? []).filter((option) => {
+    const supportedOptions = schema?.options ?? [];
+    const filteredConfigured = schema
+      ? configuredFilteredOptions(schema, session)
+      : [];
+    const catalog = needle || category === "我的配置" || category === "设置参考"
+      ? [...supportedOptions, ...filteredConfigured]
+      : supportedOptions;
+    const options = catalog.filter((option) => {
       const copy = copyForSetting(option.key, option.description);
       const searchable = `${option.key} ${copy.label} ${copy.summary ?? ""} ${option.description} ${option.category}`.toLocaleLowerCase();
       if (needle) return searchable.includes(needle);
@@ -603,7 +610,7 @@ export default function App() {
       if (candidate && resources.schema) {
         try {
           opened = await backend.openConfig(candidate.id);
-          Object.assign(nextValues, valuesForSession(resources.schema.options, opened));
+          Object.assign(nextValues, valuesForSession(resources.schema, opened));
         } catch (openError) {
           setActiveCandidate(candidate);
           setSession(null);
@@ -655,7 +662,7 @@ export default function App() {
     setSourceError(null);
     try {
       const opened = await backend.openConfig(candidate.id);
-      const nextValues = valuesForSession(schema.options, opened);
+      const nextValues = valuesForSession(schema, opened);
       setActiveCandidate(candidate);
       writePreference(PREFERRED_CANDIDATE_KEY, candidate.id);
       setSession(opened);
@@ -675,13 +682,16 @@ export default function App() {
     }
   };
 
-  const createCandidate = async (candidate: ConfigCandidate): Promise<boolean> => {
+  const executeCreateCandidate = async (
+    candidate: ConfigCandidate,
+    prompt: ConfirmationPrompt | null,
+  ): Promise<boolean> => {
     if (!schema || switchingCandidateId || applying || !isDesktop) return false;
     reviewGuardRef.current.invalidate();
     setSwitchingCandidateId(candidate.id);
     setSourceError(null);
     try {
-      const opened = await backend.createConfig(candidate.id);
+      const opened = await backend.createConfig(candidate.id, prompt);
       const [environmentResult, graphResult] = await Promise.allSettled([
         backend.probeEnvironment(),
         backend.loadConfigGraph(),
@@ -712,7 +722,7 @@ export default function App() {
       }
       setSession(opened);
       writePreference(PREFERRED_CANDIDATE_KEY, opened.candidateId);
-      const nextValues = valuesForSession(schema.options, opened);
+      const nextValues = valuesForSession(schema, opened);
       setBaseline(nextValues);
       setDraft({ ...nextValues });
       setChangePreview(null);
@@ -757,6 +767,24 @@ export default function App() {
         }
       }
       setSourceError(message);
+      return false;
+    } finally {
+      setSwitchingCandidateId(null);
+    }
+  };
+
+  const createCandidate = async (candidate: ConfigCandidate): Promise<boolean> => {
+    if (!schema || switchingCandidateId || applying || !isDesktop) return false;
+    if (!usesApplicationConfirmation) return executeCreateCandidate(candidate, null);
+    setSwitchingCandidateId(candidate.id);
+    setSourceError(null);
+    try {
+      const prompt = await backend.prepareCreateConfigConfirmation(candidate.id);
+      setSourcePanelOpen(false);
+      setPendingConfirmation({ kind: "create", prompt, candidate });
+      return true;
+    } catch (prepareError) {
+      setSourceError(errorMessage(prepareError));
       return false;
     } finally {
       setSwitchingCandidateId(null);
@@ -812,8 +840,8 @@ export default function App() {
     if (session && changesRef.current.length > 0) void openReview();
   };
 
-  const applyReviewedChanges = async () => {
-    if (!session || !changePreview?.valid) return;
+  const executeApplyReviewedChanges = async (prompt: ConfirmationPrompt | null): Promise<boolean> => {
+    if (!session || !changePreview?.valid) return false;
     if (!changeSetsEqual(changePreview.changes, changesRef.current)) {
       setReviewFailureCode("draft_changed");
       setChangePreview((current) => current ? {
@@ -822,7 +850,7 @@ export default function App() {
         valid: false,
         diagnostics: [...current.diagnostics, "草稿已变化，保存已阻止；请重新检查。"],
       } : current);
-      return;
+      return false;
     }
     const reviewedChanges = changePreview.changes;
     setApplying(true);
@@ -832,6 +860,7 @@ export default function App() {
         session.id,
         session.revision,
         changePreview.token,
+        prompt,
       );
       let nextSession = { ...session, revision: result.revision, values: { ...session.values } };
       for (const change of reviewedChanges) nextSession.values[change.key] = [...change.after];
@@ -843,7 +872,7 @@ export default function App() {
         }
       }
       setSession(nextSession);
-      const nextValues = schema ? valuesForSession(schema.options, nextSession) : { ...draft };
+      const nextValues = schema ? valuesForSession(schema, nextSession) : { ...draft };
       setBaseline(nextValues);
       setDraft({ ...nextValues });
       setNotice(
@@ -858,6 +887,7 @@ export default function App() {
       setReviewOpen(false);
       setChangePreview(null);
       setReviewFailureCode(null);
+      return true;
     } catch (applyError) {
       const applyFailureCode = errorCode(applyError);
       setReviewFailureCode(applyFailureCode);
@@ -868,7 +898,7 @@ export default function App() {
       ) {
         try {
           const opened = await backend.openConfig(activeCandidate.id);
-          const nextValues = valuesForSession(schema.options, opened);
+          const nextValues = valuesForSession(schema, opened);
           const rebasedDraft = { ...nextValues };
           for (const change of reviewedChanges) {
             const option = schema.options.find((item) => item.key === change.key);
@@ -891,7 +921,7 @@ export default function App() {
         setReviewOpen(false);
         setChangePreview(null);
         setReviewFailureCode(null);
-        return;
+        return false;
       }
       setChangePreview((current) => ({
         token: current?.token ?? "",
@@ -901,6 +931,35 @@ export default function App() {
         diagnostics: [...(current?.diagnostics ?? []), errorMessage(applyError)],
         valid: false,
       }));
+      return false;
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const applyReviewedChanges = async () => {
+    if (!session || !changePreview?.valid || applying) return;
+    if (!usesApplicationConfirmation) {
+      await executeApplyReviewedChanges(null);
+      return;
+    }
+    setApplying(true);
+    setWarning(null);
+    try {
+      const prompt = await backend.prepareApplyChangesConfirmation(
+        session.id,
+        session.revision,
+        changePreview.token,
+      );
+      setReviewOpen(false);
+      setPendingConfirmation({ kind: "apply", prompt });
+    } catch (prepareError) {
+      setReviewFailureCode(errorCode(prepareError));
+      setChangePreview((current) => current ? {
+        ...current,
+        diagnostics: [...current.diagnostics, errorMessage(prepareError)],
+        valid: false,
+      } : current);
     } finally {
       setApplying(false);
     }
@@ -939,7 +998,10 @@ export default function App() {
     void loadSnapshots();
   };
 
-  const restoreSnapshot = async (snapshot: SnapshotInfo): Promise<boolean> => {
+  const executeRestoreSnapshot = async (
+    snapshot: SnapshotInfo,
+    prompt: ConfirmationPrompt | null,
+  ): Promise<boolean> => {
     if (!session || !activeCandidate || !schema) {
       setHistoryError("当前配置会话不可用，请重新打开应用后再恢复。");
       return false;
@@ -959,6 +1021,7 @@ export default function App() {
         session.id,
         session.revision,
         snapshot.id,
+        prompt,
       );
 
       setHistoryNotice(
@@ -973,7 +1036,7 @@ export default function App() {
 
       try {
         const opened = await backend.openConfig(activeCandidate.id);
-        const nextValues = valuesForSession(schema.options, opened);
+        const nextValues = valuesForSession(schema, opened);
         setSession(opened);
         setBaseline(nextValues);
         setDraft({ ...nextValues });
@@ -993,7 +1056,7 @@ export default function App() {
       if (activeCandidate && schema) {
         try {
           const opened = await backend.openConfig(activeCandidate.id);
-          const nextValues = valuesForSession(schema.options, opened);
+          const nextValues = valuesForSession(schema, opened);
           setSession(opened);
           setBaseline(nextValues);
           setDraft({ ...nextValues });
@@ -1005,6 +1068,65 @@ export default function App() {
       return false;
     } finally {
       setRestoringSnapshotId(null);
+    }
+  };
+
+  const restoreSnapshot = async (snapshot: SnapshotInfo): Promise<boolean> => {
+    if (!session || !activeCandidate || !schema || !isDesktop || session.readOnly) {
+      setHistoryError("当前配置会话不可用，无法准备恢复确认。");
+      return false;
+    }
+    if (!usesApplicationConfirmation) return executeRestoreSnapshot(snapshot, null);
+    setRestoringSnapshotId(snapshot.id);
+    setHistoryError(null);
+    try {
+      const prompt = await backend.prepareRestoreSnapshotConfirmation(
+        session.id,
+        session.revision,
+        snapshot.id,
+      );
+      setHistoryOpen(false);
+      setPendingConfirmation({ kind: "restore", prompt, snapshot });
+      return true;
+    } catch (prepareError) {
+      setHistoryError(errorMessage(prepareError));
+      return false;
+    } finally {
+      setRestoringSnapshotId(null);
+    }
+  };
+
+  const cancelConfirmation = () => {
+    if (!pendingConfirmation || confirmationProcessing) return;
+    const kind = pendingConfirmation.kind;
+    setPendingConfirmation(null);
+    setNotice(errorMessage({ code: "native_confirmation_cancelled" }));
+    if (kind === "create") setSourcePanelOpen(true);
+    if (kind === "apply") setReviewOpen(true);
+    if (kind === "restore") setHistoryOpen(true);
+  };
+
+  const confirmPendingOperation = async () => {
+    if (!pendingConfirmation || confirmationProcessing) return;
+    const pending = pendingConfirmation;
+    setConfirmationProcessing(true);
+    let completed = false;
+    try {
+      if (pending.kind === "create") {
+        completed = await executeCreateCandidate(pending.candidate, pending.prompt);
+      } else if (pending.kind === "apply") {
+        completed = await executeApplyReviewedChanges(pending.prompt);
+      } else {
+        completed = await executeRestoreSnapshot(pending.snapshot, pending.prompt);
+      }
+    } finally {
+      setConfirmationProcessing(false);
+      setPendingConfirmation(null);
+      if (!completed) {
+        if (pending.kind === "create") setSourcePanelOpen(true);
+        if (pending.kind === "apply") setReviewOpen(true);
+        if (pending.kind === "restore") setHistoryOpen(true);
+      }
     }
   };
 
@@ -1084,7 +1206,7 @@ export default function App() {
             >
               <X size={13} />
             </button>
-          ) : <kbd>⌘K</kbd>}
+          ) : <kbd>{modifierLabel}K</kbd>}
         </div>
 
         <nav className="main-nav" aria-label="我的配置">
@@ -1248,6 +1370,8 @@ export default function App() {
                               configuredInEditingLayer={configuredInEditingLayer}
                               effectiveValueKnown={configGraph?.semanticsKnown ?? false}
                               sourceLabel={activeCandidate?.label ?? "当前配置"}
+                              platformRestricted={platformRestrictedKeys.has(option.key)}
+                              currentPlatform={environment?.platform}
                               onValueChange={updateDraftValue}
                               onReset={resetDraftValue}
                             />
@@ -1315,7 +1439,7 @@ export default function App() {
                 disabled={reviewLoading || applying}
               >
                 {reviewLoading ? "正在检查…" : "检查并保存"}
-                <kbd>⌘S</kbd>
+                <kbd>{modifierLabel}S</kbd>
               </button>
             </div>
           </section>
@@ -1387,6 +1511,14 @@ export default function App() {
           onClose={() => setHistoryOpen(false)}
           onRetry={() => void loadSnapshots()}
           onRestore={restoreSnapshot}
+        />
+      )}
+      {pendingConfirmation && (
+        <ConfirmationDialog
+          prompt={pendingConfirmation.prompt}
+          processing={confirmationProcessing}
+          onCancel={cancelConfirmation}
+          onConfirm={() => void confirmPendingOperation()}
         />
       )}
     </div>

@@ -1,43 +1,84 @@
-import type { EnvironmentReport, RuntimeSchema, SnapshotInfo } from "./types";
+import type { EnvironmentReport, RuntimeOption, RuntimeSchema, SnapshotInfo } from "./types";
 
-export const demoEnvironment: EnvironmentReport = {
-  platform: "macOS",
-  architecture: "arm64",
-  ghostty: {
-    available: true,
-    executablePath: "/Applications/Ghostty.app/Contents/MacOS/ghostty",
-    version: "1.3.1",
-    channel: "stable",
-    rawVersion: "Ghostty 1.3.1",
-  },
-  candidates: [
-    {
-      id: "demo-app-support",
-      label: "macOS · config",
-      path: "~/Library/Application Support/com.mitchellh.ghostty/config",
-      source: "macos",
-      format: "legacy",
-      priority: 3,
-      exists: true,
-      writable: true,
-      symlink: false,
-      sizeBytes: 1928,
+export type DemoPlatform = "macos" | "linux";
+
+export function demoPlatformFor(platform: string, userAgent: string): DemoPlatform {
+  return /mac|iphone|ipad|ipod/i.test(`${platform} ${userAgent}`) ? "macos" : "linux";
+}
+
+export function demoEnvironmentFor(platform: DemoPlatform): EnvironmentReport {
+  const macos = platform === "macos";
+  return {
+    platform: macos ? "macOS" : "Linux",
+    architecture: macos ? "arm64" : "x86_64",
+    ghostty: {
+      available: true,
+      executablePath: macos ? "/Applications/Ghostty.app/Contents/MacOS/ghostty" : "/usr/bin/ghostty",
+      version: "1.3.1",
+      channel: "stable",
+      rawVersion: "Ghostty 1.3.1",
     },
-    {
-      id: "demo-xdg",
-      label: "XDG · config",
-      path: "~/.config/ghostty/config",
-      source: "xdg",
-      format: "legacy",
-      priority: 1,
-      exists: true,
-      writable: true,
-      symlink: false,
-      sizeBytes: 5145,
-    },
-  ],
-  warnings: [],
-};
+    candidates: macos ? [
+      {
+        id: "demo-app-support",
+        label: "macOS · config",
+        path: "~/Library/Application Support/com.mitchellh.ghostty/config",
+        source: "macos",
+        format: "legacy",
+        priority: 3,
+        exists: true,
+        writable: true,
+        symlink: false,
+        sizeBytes: 1928,
+      },
+      {
+        id: "demo-xdg",
+        label: "XDG · config",
+        path: "~/.config/ghostty/config",
+        source: "xdg",
+        format: "legacy",
+        priority: 1,
+        exists: true,
+        writable: true,
+        symlink: false,
+        sizeBytes: 5145,
+      },
+    ] : [
+      {
+        id: "demo-xdg",
+        label: "XDG · config",
+        path: "~/.config/ghostty/config",
+        source: "xdg",
+        format: "legacy",
+        priority: 1,
+        exists: true,
+        writable: true,
+        symlink: false,
+        sizeBytes: 5145,
+      },
+      {
+        id: "demo-xdg-legacy",
+        label: "XDG · legacy config",
+        path: "~/.config/ghostty/config.ghostty",
+        source: "xdg",
+        format: "ghostty",
+        priority: 2,
+        exists: true,
+        writable: true,
+        symlink: false,
+        sizeBytes: 1928,
+      },
+    ],
+    warnings: [],
+  };
+}
+
+const browserDemoPlatform = demoPlatformFor(
+  typeof navigator === "undefined" ? "Linux" : navigator.platform,
+  typeof navigator === "undefined" ? "" : navigator.userAgent,
+);
+
+export const demoEnvironment = demoEnvironmentFor(browserDemoPlatform);
 
 export const demoSchema: RuntimeSchema = {
   ghosttyVersion: "1.3.1",
@@ -181,6 +222,33 @@ export const demoSchema: RuntimeSchema = {
       risk: "sensitive",
     },
   ],
+  filteredOptions: [browserDemoPlatform === "linux" ? {
+    key: "macos-titlebar-style",
+    description: "macOS titlebar integration.",
+    defaultValues: ["native"],
+    currentValues: ["native"],
+    category: "macOS",
+    kind: "text",
+    choices: [],
+    repeatable: false,
+    platform: "macOS",
+    since: null,
+    risk: "advanced",
+    editable: false,
+  } : {
+    key: "gtk-titlebar",
+    description: "GTK titlebar integration.",
+    defaultValues: ["true"],
+    currentValues: ["true"],
+    category: "Linux / GTK",
+    kind: "boolean",
+    choices: ["true", "false"],
+    repeatable: false,
+    platform: "Linux",
+    since: null,
+    risk: "advanced",
+    editable: false,
+  } satisfies RuntimeOption],
 };
 
 export const demoSnapshots: SnapshotInfo[] = [

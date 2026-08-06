@@ -1,4 +1,6 @@
 node_modules/
+tests/linux/.tauri-driver-bin
+tests/linux/.tauri-driver-root/
 dist/
 src-tauri/target/
 src-tauri/gen/

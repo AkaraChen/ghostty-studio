@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { CircleMinus, Info, LockKeyhole, RotateCcw } from "lucide-react";
 import { copyForSetting } from "../settingCopy";
+import { platformRestrictionLabel } from "../platform";
 import type { RuntimeOption } from "../types";
 import { SettingControl } from "./SettingControl";
 
@@ -11,6 +12,8 @@ interface SettingRowProps {
   configuredInEditingLayer: boolean;
   effectiveValueKnown: boolean;
   sourceLabel: string;
+  platformRestricted?: boolean;
+  currentPlatform?: string | null;
   onValueChange(key: string, value: string): void;
   onReset(key: string, baselineValue: string): void;
 }
@@ -22,14 +25,19 @@ export const SettingRow = memo(function SettingRow({
   configuredInEditingLayer,
   effectiveValueKnown,
   sourceLabel,
+  platformRestricted = false,
+  currentPlatform = null,
   onValueChange,
   onReset,
 }: SettingRowProps) {
   const modified = value !== baselineValue;
-  const requiresSpecialEditor = option.editable === false
+  const requiresSpecialEditor = platformRestricted
+    || option.editable === false
     || option.repeatable
     || option.risk !== "normal";
-  const restrictionLabel = option.risk === "sensitive"
+  const restrictionLabel = platformRestricted
+    ? platformRestrictionLabel(option.platform, currentPlatform)
+    : option.risk === "sensitive"
     ? "敏感设置"
     : option.repeatable
       ? "多值设置"
@@ -62,6 +70,9 @@ export const SettingRow = memo(function SettingRow({
               <div><dt>当前文件</dt><dd>{configuredInEditingLayer ? sourceLabel : "未显式设置"}</dd></div>
             </dl>
             {!effectiveValueKnown && <p>其他配置来源可能覆盖这里的值。</p>}
+            {platformRestricted && (
+              <p>{platformRestrictionLabel(option.platform, currentPlatform)}；该配置会原样保留。</p>
+            )}
             {copy.detail && <p>{copy.detail}</p>}
             {configuredInEditingLayer && !requiresSpecialEditor && (
               <button

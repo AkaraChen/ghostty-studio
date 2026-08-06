@@ -8,29 +8,69 @@ use crate::{
     models::{RuntimeOption, RuntimeSchema},
 };
 
-const AUDITED_GHOSTTY_VERSION: &str = "1.3.1";
-const AUDITED_SCHEMA_HASH: &str =
-    "5e36480fe2ec3d510ffc32de84c617fbaca10e1330c097185301b51ab9c10e6c";
+struct AuditedSchemaContract {
+    version: &'static str,
+    hashes: &'static [&'static str],
+}
+
+const GHOSTTY_1_3_1_SCHEMA_HASHES: &[&str] = &[
+    "5e36480fe2ec3d510ffc32de84c617fbaca10e1330c097185301b51ab9c10e6c",
+    // pkgforge-dev Ghostty 1.3.1 x86_64 AppImage used by the Linux release gate.
+    "acc95fe8726531505334a222b82c0eaef59acd4986fb4ccd8bb054eedbb83a9d",
+    // Canonical Ghostty 1.3.1 snap schema observed by the Linux desktop gate.
+    "ec1566d051ae06a0884cac299e94f32638fb41eaf20fcaeba3cdc29bdfbae01b",
+];
+
+const AUDITED_SCHEMA_CONTRACTS: &[AuditedSchemaContract] = &[AuditedSchemaContract {
+    version: "1.3.1",
+    hashes: GHOSTTY_1_3_1_SCHEMA_HASHES,
+}];
 
 pub fn load(executable: &Path, version: Option<String>) -> Result<RuntimeSchema, CommandError> {
     let document = ghostty::show_default_config_with_docs(executable)?;
     let schema_hash = hex(&Sha256::digest(document.as_bytes()));
-    let contract_matches =
-        version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) && schema_hash == AUDITED_SCHEMA_HASH;
-    let options = parse_document(&document, contract_matches);
-    let diagnostics = if contract_matches {
-        Vec::new()
-    } else {
-        vec![format!(
-            "当前 Ghostty 版本尚未适配，设置暂时只读（检测到 {}）。",
-            version.as_deref().unwrap_or("未知版本")
-        )]
-    };
+    let contract_matches = schema_contract_is_audited(version.as_deref(), &schema_hash);
+    let parsed_options = parse_document(&document, contract_matches);
+    let (options, filtered_options) = options_for_target(parsed_options, std::env::consts::OS);
+    let diagnostics = compatibility_diagnostic(version.as_deref(), &schema_hash, contract_matches)
+        .into_iter()
+        .collect();
     Ok(RuntimeSchema {
         ghostty_version: version,
         schema_hash,
         options,
+        filtered_options,
         diagnostics,
+    })
+}
+
+fn schema_contract_is_audited(version: Option<&str>, schema_hash: &str) -> bool {
+    AUDITED_SCHEMA_CONTRACTS
+        .iter()
+        .any(|contract| version == Some(contract.version) && contract.hashes.contains(&schema_hash))
+}
+
+fn compatibility_diagnostic(
+    version: Option<&str>,
+    schema_hash: &str,
+    contract_matches: bool,
+) -> Option<String> {
+    if contract_matches {
+        return None;
+    }
+
+    Some(match version {
+        Some(version)
+            if AUDITED_SCHEMA_CONTRACTS
+                .iter()
+                .any(|contract| contract.version == version) =>
+        {
+            format!("Ghostty {version} 的 schema 指纹 {schema_hash} 尚未审核，设置暂时只读。")
+        }
+        Some(version) => {
+            format!("Ghostty {version} 尚未完成 schema 审核，设置暂时只读。")
+        }
+        None => "无法识别 Ghostty 版本，schema 尚未审核，设置暂时只读。".to_string(),
     })
 }
 
@@ -76,7 +116,7 @@ fn parse_document(document: &str, contract_matches: bool) -> Vec<RuntimeOption> 
             ),
             None => ("text", Vec::new()),
         };
-        let platform = platform_for(&description);
+        let platform = platform_for(key, &description);
         let repeatable = known_repeatable(key);
         let risk = risk_for(key);
         options.insert(
@@ -101,6 +141,15 @@ fn parse_document(document: &str, contract_matches: bool) -> Vec<RuntimeOption> 
     }
 
     options.into_values().collect()
+}
+
+fn options_for_target(
+    options: Vec<RuntimeOption>,
+    target_os: &str,
+) -> (Vec<RuntimeOption>, Vec<RuntimeOption>) {
+    options
+        .into_iter()
+        .partition(|option| platform_supported(option.platform.as_deref(), target_os))
 }
 
 fn category_for(key: &str) -> &'static str {
@@ -181,31 +230,58 @@ fn risk_for(key: &str) -> &'static str {
 fn audited_contract(key: &str) -> Option<(&'static str, &'static [&'static str])> {
     const NO_CHOICES: &[&str] = &[];
     const CURSOR_STYLES: &[&str] = &["block", "bar", "underline", "block_hollow"];
-    match key {
-        "font-size"
-        | "minimum-contrast"
-        | "background-opacity"
-        | "cursor-opacity"
-        | "unfocused-split-opacity" => Some(("number", NO_CHOICES)),
-        "background"
-        | "foreground"
-        | "selection-foreground"
-        | "selection-background"
-        | "cursor-color"
-        | "split-divider-color" => Some(("color", NO_CHOICES)),
-        "cursor-style" => Some(("select", CURSOR_STYLES)),
-        _ => None,
+    if AUDITED_NUMBER_KEYS.contains(&key) {
+        Some(("number", NO_CHOICES))
+    } else if AUDITED_COLOR_KEYS.contains(&key) {
+        Some(("color", NO_CHOICES))
+    } else if key == "cursor-style" {
+        Some(("select", CURSOR_STYLES))
+    } else {
+        None
     }
 }
 
-fn platform_for(description: &str) -> Option<String> {
+const AUDITED_NUMBER_KEYS: &[&str] = &[
+    "font-size",
+    "minimum-contrast",
+    "background-opacity",
+    "cursor-opacity",
+    "unfocused-split-opacity",
+];
+
+const AUDITED_COLOR_KEYS: &[&str] = &[
+    "background",
+    "foreground",
+    "selection-foreground",
+    "selection-background",
+    "cursor-color",
+    "split-divider-color",
+];
+
+fn platform_for(key: &str, description: &str) -> Option<String> {
     let lower = description.to_ascii_lowercase();
-    if lower.contains("only supported on macos") || lower.contains("macos only") {
+    if key.starts_with("macos-")
+        || lower.contains("only supported on macos")
+        || lower.contains("macos only")
+    {
         Some("macOS".to_string())
-    } else if lower.contains("only supported on linux") || lower.contains("gtk only") {
+    } else if key.starts_with("linux-")
+        || key.starts_with("gtk-")
+        || key.starts_with("x11-")
+        || lower.contains("only supported on linux")
+        || lower.contains("gtk only")
+    {
         Some("Linux".to_string())
     } else {
         None
+    }
+}
+
+fn platform_supported(platform: Option<&str>, target_os: &str) -> bool {
+    match platform {
+        Some("macOS") => target_os == "macos",
+        Some("Linux") => target_os == "linux",
+        _ => true,
     }
 }
 
@@ -216,6 +292,34 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct AuditedSchemaEvidence {
+        full_schema: FullSchemaEvidence,
+        audited_contract: BTreeMap<String, OptionEvidence>,
+    }
+
+    #[derive(Deserialize)]
+    struct FullSchemaEvidence {
+        official_sha256: String,
+        pkgforge_sha256: String,
+        byte_identical: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct OptionEvidence {
+        kind: String,
+        choices: Vec<String>,
+        official: ObservedOption,
+        pkgforge: ObservedOption,
+    }
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct ObservedOption {
+        defaults: Vec<String>,
+        docs_sha256: String,
+    }
 
     #[test]
     fn parses_documentation_defaults_and_repeatable_values() {
@@ -271,6 +375,156 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_1_3_1_accepts_only_its_audited_schema_variants() {
+        for hash in GHOSTTY_1_3_1_SCHEMA_HASHES {
+            assert!(schema_contract_is_audited(Some("1.3.1"), hash));
+        }
+        assert!(!schema_contract_is_audited(Some("1.3.1"), "unreviewed"));
+        assert!(!schema_contract_is_audited(
+            Some("1.3.2"),
+            GHOSTTY_1_3_1_SCHEMA_HASHES[0]
+        ));
+        assert!(!schema_contract_is_audited(
+            None,
+            GHOSTTY_1_3_1_SCHEMA_HASHES[0]
+        ));
+    }
+
+    #[test]
+    fn schema_diagnostics_distinguish_unknown_versions_and_hashes() {
+        assert_eq!(
+            compatibility_diagnostic(Some("1.4.0"), "future", false).as_deref(),
+            Some("Ghostty 1.4.0 尚未完成 schema 审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(Some("1.3.1"), "unexpected", false).as_deref(),
+            Some("Ghostty 1.3.1 的 schema 指纹 unexpected 尚未审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(None, "unknown", false).as_deref(),
+            Some("无法识别 Ghostty 版本，schema 尚未审核，设置暂时只读。")
+        );
+        assert_eq!(
+            compatibility_diagnostic(Some("1.3.1"), GHOSTTY_1_3_1_SCHEMA_HASHES[0], true),
+            None
+        );
+    }
+
+    #[test]
+    fn audited_contract_matches_the_archived_1_3_1_build_diff() {
+        let evidence: AuditedSchemaEvidence = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/ghostty-1.3.1-schema-audit.json"
+        ))
+        .unwrap();
+        assert!(evidence.full_schema.byte_identical);
+        assert_eq!(
+            evidence.full_schema.official_sha256,
+            evidence.full_schema.pkgforge_sha256
+        );
+        assert!(schema_contract_is_audited(
+            Some("1.3.1"),
+            &evidence.full_schema.official_sha256
+        ));
+
+        let expected_keys = AUDITED_NUMBER_KEYS
+            .iter()
+            .chain(AUDITED_COLOR_KEYS)
+            .copied()
+            .chain(std::iter::once("cursor-style"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            evidence
+                .audited_contract
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            expected_keys
+        );
+
+        for (key, observed) in evidence.audited_contract {
+            assert_eq!(observed.official, observed.pkgforge, "{key}");
+            let (kind, choices) = audited_contract(&key).expect("evidence key must be audited");
+            assert_eq!(observed.kind, kind, "{key}");
+            assert_eq!(
+                observed.choices,
+                choices
+                    .iter()
+                    .map(|choice| choice.to_string())
+                    .collect::<Vec<_>>(),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn platform_prefixes_are_classified_even_without_documentation_markers() {
+        assert_eq!(
+            platform_for("macos-titlebar-style", "Titlebar style"),
+            Some("macOS".into())
+        );
+        assert_eq!(
+            platform_for("gtk-tabs-location", "Tab location"),
+            Some("Linux".into())
+        );
+    }
+
+    #[test]
+    fn platform_filter_is_bidirectional() {
+        assert!(!platform_supported(Some("macOS"), "linux"));
+        assert!(platform_supported(Some("Linux"), "linux"));
+        assert!(platform_supported(None, "linux"));
+        assert!(platform_supported(Some("macOS"), "macos"));
+        assert!(!platform_supported(Some("Linux"), "macos"));
+        assert!(platform_supported(None, "macos"));
+    }
+
+    #[test]
+    fn linux_keeps_macos_options_as_filtered_metadata() {
+        let parsed = parse_document(
+            "macos-titlebar-style = native\ngtk-titlebar = true\nfont-size = 13\n",
+            true,
+        );
+        let (supported, filtered) = options_for_target(parsed, "linux");
+        assert_eq!(
+            supported
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["font-size", "gtk-titlebar"]
+        );
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["macos-titlebar-style"]
+        );
+    }
+
+    #[test]
+    fn macos_keeps_linux_options_as_filtered_metadata() {
+        let parsed = parse_document(
+            "macos-titlebar-style = native\ngtk-titlebar = true\nfont-size = 13\n",
+            true,
+        );
+        let (supported, filtered) = options_for_target(parsed, "macos");
+        assert_eq!(
+            supported
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["font-size", "macos-titlebar-style"]
+        );
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|option| option.key.as_str())
+                .collect::<Vec<_>>(),
+            ["gtk-titlebar"]
+        );
+    }
+
+    #[test]
     fn installed_ghostty_schema_is_large_when_binary_is_available() {
         let Some(executable) = ghostty::locate() else {
             return;
@@ -288,8 +542,11 @@ mod tests {
             .map(|option| &option.key)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), schema.options.len());
-        if probe.version.as_deref() == Some(AUDITED_GHOSTTY_VERSION) {
-            assert_eq!(schema.schema_hash, AUDITED_SCHEMA_HASH);
+        if probe.version.as_deref() == Some("1.3.1") {
+            assert!(schema_contract_is_audited(
+                probe.version.as_deref(),
+                &schema.schema_hash
+            ));
             assert!(schema
                 .options
                 .iter()

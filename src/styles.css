@@ -709,38 +709,6 @@ select:focus,
   box-shadow: 0 18px 35px rgba(0, 0, 0, 0.22);
 }
 
-.terminal-titlebar {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  height: 32px;
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-  background: #1a1d23;
-  color: #848a95;
-  font-size: 8px;
-  text-align: center;
-}
-
-.terminal-titlebar > svg {
-  justify-self: end;
-}
-
-.traffic-lights {
-  display: flex;
-  gap: 5px;
-}
-
-.traffic-light {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.traffic-light--red { background: #ff5f57; }
-.traffic-light--yellow { background: #febc2e; }
-.traffic-light--green { background: #28c840; }
-
 .terminal-screen {
   min-height: 224px;
   contain: paint;
@@ -3491,6 +3459,18 @@ select,
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.45;
+}
+
+.confirmation-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.confirmation-message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
 }
 
 .review-footer {

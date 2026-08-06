@@ -1,5 +1,5 @@
 import { memo, useId } from "react";
-import { ChevronRight, GitBranch, Wifi } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
 import { compositePreviewBackground } from "../previewColor";
 
 interface TerminalPreviewProps {
@@ -33,15 +33,6 @@ export const TerminalPreview = memo(function TerminalPreview({ values }: Termina
       aria-label="终端外观模拟预览"
       aria-describedby={descriptionId}
     >
-      <div className="terminal-titlebar" aria-hidden="true">
-        <div className="traffic-lights" aria-hidden="true">
-          <span className="traffic-light traffic-light--red" />
-          <span className="traffic-light traffic-light--yellow" />
-          <span className="traffic-light traffic-light--green" />
-        </div>
-        <span>ghostty — studio</span>
-        <Wifi size={13} />
-      </div>
       <div
         className="terminal-screen"
         aria-hidden="true"

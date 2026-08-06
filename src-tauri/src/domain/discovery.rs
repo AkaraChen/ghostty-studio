@@ -84,7 +84,17 @@ pub fn ghostty_executable_candidates() -> Vec<PathBuf> {
             PathBuf::from("/usr/bin/ghostty"),
             PathBuf::from("/usr/local/bin/ghostty"),
             PathBuf::from("/opt/ghostty/bin/ghostty"),
+            PathBuf::from("/snap/bin/ghostty"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/com.mitchellh.ghostty"),
         ]);
+        if let Some(home) = env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            candidates.extend([
+                home.join(".local/bin/ghostty"),
+                home.join(".nix-profile/bin/ghostty"),
+                home.join(".local/share/flatpak/exports/bin/com.mitchellh.ghostty"),
+            ]);
+        }
     }
     // Search PATH only after platform-owned install locations. A desktop app
     // should not prefer an unrelated same-named executable from a modified PATH.

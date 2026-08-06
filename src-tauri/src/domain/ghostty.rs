@@ -1,4 +1,6 @@
 use std::{
+    env,
+    ffi::OsString,
     io::Read,
     path::Path,
     process::{Command, Stdio},
@@ -138,9 +140,18 @@ fn validation_report(output: CommandOutput) -> ValidationReport {
 }
 
 fn run(executable: &Path, arguments: &[&str]) -> Result<CommandOutput, CommandError> {
-    let mut child = Command::new(executable)
-        .args(arguments)
-        .env("NO_COLOR", "1")
+    run_with_environment(executable, arguments, |key| env::var_os(key))
+}
+
+fn run_with_environment(
+    executable: &Path,
+    arguments: &[&str],
+    environment: impl Fn(&str) -> Option<OsString>,
+) -> Result<CommandOutput, CommandError> {
+    let mut command = Command::new(executable);
+    command.args(arguments).env("NO_COLOR", "1");
+    sanitize_appimage_environment(&mut command, environment);
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -200,6 +211,38 @@ fn run(executable: &Path, arguments: &[&str]) -> Result<CommandOutput, CommandEr
     })
 }
 
+fn sanitize_appimage_environment(
+    command: &mut Command,
+    environment: impl Fn(&str) -> Option<OsString>,
+) {
+    if environment("APPDIR").is_none() && environment("APPIMAGE").is_none() {
+        return;
+    }
+
+    for key in [
+        "LD_LIBRARY_PATH",
+        "XDG_DATA_DIRS",
+        "GIO_MODULE_DIR",
+        "GIO_EXTRA_MODULES",
+        "GTK_PATH",
+        "GTK_EXE_PREFIX",
+        "GTK_DATA_PREFIX",
+        "GDK_PIXBUF_MODULE_FILE",
+    ] {
+        match environment(&format!("{key}_ORIG")) {
+            Some(original) if !original.is_empty() => {
+                command.env(key, original);
+            }
+            _ => {
+                command.env_remove(key);
+            }
+        }
+    }
+    for key in ["APPDIR", "APPIMAGE", "ARGV0"] {
+        command.env_remove(key);
+    }
+}
+
 fn read_limited(reader: impl Read, limit: usize) -> Result<(Vec<u8>, bool), std::io::Error> {
     let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
     reader.take((limit + 1) as u64).read_to_end(&mut bytes)?;
@@ -240,6 +283,10 @@ fn summarized_error(stderr: &str, fallback: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn output_reader_enforces_its_byte_limit() {
@@ -255,5 +302,35 @@ mod tests {
         assert!(summary.contains("2 条诊断"));
         assert!(!summary.contains("super-secret"));
         assert!(!summary.contains("/path/to/private"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn appimage_environment_is_not_leaked_to_host_ghostty() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("ghostty");
+        std::fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s' \"${LD_LIBRARY_PATH-unset}\" \"${XDG_DATA_DIRS-unset}\" \"${GIO_MODULE_DIR-unset}\" \"${GIO_EXTRA_MODULES-unset}\" \"${APPDIR-unset}\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let environment = HashMap::from([
+            ("APPDIR", OsString::from("/tmp/.mount/app")),
+            ("APPIMAGE", OsString::from("/tmp/Ghostty.AppImage")),
+            ("LD_LIBRARY_PATH", OsString::from("/tmp/.mount/app/usr/lib")),
+            ("LD_LIBRARY_PATH_ORIG", OsString::from("/host/lib")),
+            ("XDG_DATA_DIRS", OsString::from("/tmp/.mount/app/usr/share")),
+            (
+                "GIO_MODULE_DIR",
+                OsString::from("/tmp/.mount/app/usr/lib/gio/modules"),
+            ),
+            ("GIO_EXTRA_MODULES", OsString::from("/usr/lib/gio/modules")),
+        ]);
+
+        let output =
+            run_with_environment(&executable, &[], |key| environment.get(key).cloned()).unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "/host/lib|unset|unset|unset|unset");
     }
 }
